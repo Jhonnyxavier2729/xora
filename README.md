@@ -1,96 +1,96 @@
 # Xora
 
-Un lienzo infinito con zoom para trabajar con agentes de código. Cada carpeta de proyecto es un *workspace* donde colocas, mueves y redimensionas paneles:
+> Working name. An infinite, zoomable canvas for working with AI coding agents.
 
-- **Terminal**: shell real (PowerShell 7 si está instalado) mediante ConPTY.
-- **Agente**: Claude Code, Codex, OpenCode, Cursor CLI, Gemini CLI o cualquier comando. El panel detecta si el agente **trabaja**, **te espera** o **pide aprobación**, y te avisa con una notificación.
-- **Editor**: Monaco (el editor de VS Code) con árbol de archivos. Ctrl+S guarda.
-- **Navegador**: para ver tu app en `localhost` o cualquier web.
-- **Notas**: Markdown con vista previa.
-- **Git**: cambios, diff, commit, **comentarios en el diff que se envían a un agente** y **tareas aisladas en worktrees** (un agente por rama).
-- **Xen**: tu compañero de voz. Vive en el dock y te sigue con la mirada. Mantén pulsada una tecla (por defecto *Ctrl derecho*), habla y suelta: los bordes de la pantalla se iluminan mientras escucha, y Xen transcribe y reparte la petición al agente adecuado. También acepta texto, y *Dictar* escribe lo que dices donde está tu cursor.
-- **Acceso remoto**: abre tus terminales y agentes desde el móvil, responde cuando un agente te espera y háblale a Xen. Se empareja con un código QR de un solo uso; opcionalmente, un túnel HTTPS de Cloudflare permite entrar fuera de casa.
+Xora is a desktop app (Electron + React, Windows-first) where every project folder becomes a **workspace**: a canvas on which you place, move and resize panels — agents, terminals, an editor, a browser, sticky notes and Git — and talk to all of them by voice.
 
-## Requisitos
+It works with the coding agents you already have installed and signed in to: **Claude Code**, **Codex** and **OpenCode**. Everything runs locally; Xora has no servers of its own.
 
-- Windows 10/11, Node.js 22 o superior.
-- Los agentes que quieras usar, instalados y en el PATH (p. ej. `npm install -g @anthropic-ai/claude-code`).
-- Para Xen: una clave de **Anthropic**. Para la voz: una clave de **Groq** (recomendada, rápida y con capa gratuita) u **OpenAI**. Se introducen en *Ajustes → Claves API* y se guardan cifradas con el almacén seguro de Windows.
-- Para el túnel remoto (opcional): `winget install Cloudflare.cloudflared`.
+## Features
 
-## Uso
+### Canvas
+- Infinite canvas with zoom (Ctrl + wheel), panning (drag the background, middle mouse or Space + drag), minimap, auto-layout (Ctrl+Shift+L), fit-to-view (Ctrl+Shift+1) and multi-select (Ctrl+A).
+- Floating UI: workspace switcher (Ctrl+1…9), tools rail, bottom dock, inbox of agents waiting for you.
+- Right-click menu with a filter: new task, terminal, editor, browser, note, panel library, paste a URL (opens a browser) or text (creates a note), change look.
+- Themes (9), accent colors and 50 public-domain wallpapers, or your own image.
+
+### Panels
+| Panel | What it does |
+| --- | --- |
+| **New task** | A structured session with Claude Code, Codex or OpenCode: model picker (lists each CLI's real models), Build/Plan mode, four access levels (Supervised, Auto-accept edits, Auto, Full access), file attachments, slash commands, dictation, live streaming, tool calls and Allow/Deny approval cards. |
+| **Agent** | Any agent CLI in a real terminal, with automatic *working / waiting for you / needs approval* detection and notifications. |
+| **Terminal** | A real shell (PowerShell 7 if installed) via ConPTY. |
+| **Editor** | Monaco (VS Code's editor) with a file tree. |
+| **Browser** | An isolated browser for `localhost` or any site. |
+| **Notes** | Markdown sticky notes in five colors. |
+| **Git** | Status, diff, commit, **comments on diff lines sent to an agent**, and isolated tasks in **worktrees** (one agent per branch). |
+
+### Xen, the voice companion
+- Hold a key (Right Ctrl by default), speak, release. The screen edges glow while Xen listens.
+- Xen understands what you said and routes it to the right agent ("tell Claude to add tests to the login").
+- Xen is powered by **your own agents** — Claude Code, Codex or OpenCode, in the priority order you choose, with automatic fallback — so it needs no API key. The Anthropic API is optional.
+- **Dictate** types what you say wherever your cursor is.
+- Speech-to-text uses Whisper via Groq or OpenAI with your own key.
+
+### Remote access
+Open your terminals and agents from your phone, answer agents that are waiting for you and talk to Xen. Devices pair once with a one-time QR code; an optional Cloudflare tunnel provides HTTPS outside your home network.
+
+### Accounts
+Xora detects the sign-in of each agent CLI and can open its login command for you. If you prefer, each agent can use your own API key instead (stored encrypted).
+
+## Requirements
+
+- Windows 10/11 and Node.js 22+.
+- At least one agent CLI installed and signed in:
+  - Claude Code: `npm install -g @anthropic-ai/claude-code`
+  - Codex: `npm install -g @openai/codex`
+  - OpenCode: `npm install -g opencode-ai`
+- For voice: a Groq or OpenAI API key (Settings → API keys).
+- Optional: `gh` (GitHub CLI) to clone your repositories from the app, and `cloudflared` for the remote-access tunnel.
+
+## Getting started
 
 ```bash
 npm install
-```
-
-```bash
 npm run dev
 ```
 
-Para crear el instalador de Windows en `dist/`:
+Build a Windows installer into `dist/`:
 
 ```bash
 npm run dist
 ```
 
-### La interfaz
-
-Todo flota sobre el lienzo, a pantalla completa:
-
-- **Arriba a la izquierda**: el espacio actual y su carpeta (clic en la ruta para abrirla en el Explorador).
-- **Arriba a la derecha**: estado del acceso móvil, ajustes y bandeja de agentes.
-- **Izquierda, Espacios**: tus carpetas de proyecto; el punto naranja indica que un agente te espera.
-- **Derecha, Herramientas**: crea agentes, terminales, editor, navegador, notas o git.
-- **Abajo**: *Añadir panel*, *Pregúntale a Xen* (toca para escribir), *Dictar* (escribe lo que dices en el panel enfocado), el botón de Xen para hablarle y la *Bandeja*.
-- **Abajo a la derecha**: minimapa (clic o arrastre para moverte), lista de paneles y zoom.
-- **Bajo el dock**: oscurecido del fondo (☀) y opacidad de los paneles (◐).
-- **Abajo a la izquierda, Extras**: *Cambiar aspecto* (9 temas, 8 acentos y 50 fondos, o tu propia imagen), voz, claves y acceso móvil.
-- **Clic derecho en el fondo**: menú con filtro para crear tareas, terminales, editor, navegador o notas en ese punto, la biblioteca de paneles, seleccionar todo, ordenar automáticamente, ajustar a la vista, pegar y cambiar aspecto.
-
-### Controles del lienzo
-
-| Acción | Cómo |
-| --- | --- |
-| Moverse | Arrastrar el fondo, botón central del ratón, mantener Espacio y arrastrar, o el minimapa |
-| Zoom | Ctrl + rueda (alrededor del cursor), o los botones − / + |
-| Ver todo | Botón ⛶ junto al zoom |
-| Maximizar un panel | Doble clic en su cabecera |
-| Renombrar un panel | Doble clic en su título |
-| Ir a un panel | Lista de paneles (☰) o la Bandeja |
-| Color de una nota | Puntos de color en la barra de la nota |
-| Seleccionar todo y mover en grupo | Ctrl + A, y arrastrar cualquiera de los paneles |
-| Ordenar automáticamente | Ctrl + Shift + L |
-| Ajustar a la vista | Ctrl + Shift + 1 |
-| Biblioteca de paneles | Ctrl + Shift + E |
-| Pegar una URL (navegador) o texto (nota) | Ctrl + V sobre el lienzo |
-
-## Arquitectura
+## Architecture
 
 ```
 src/
-  main/        proceso principal de Electron
-    pty.ts       terminales (node-pty) y detección de estado de los agentes
-    xen.ts       Xen: Claude con herramientas para listar, leer, crear y escribir en paneles
-    voice.ts     píldora de voz, tecla de mantener pulsado (uiohook) y transcripción (Groq/OpenAI)
-    remote.ts    servidor HTTP + WebSocket del acceso remoto, emparejamiento y túnel
-    git.ts       estado, diff, commit y worktrees (simple-git)
-    files.ts     acceso a archivos limitado a los workspaces abiertos
-    store.ts     persistencia (userData/state.json) y secretos cifrados (safeStorage)
-  preload/     API mínima expuesta con contextBridge
-  renderer/    React: lienzo, paneles, ajustes, píldora de voz y cliente remoto (móvil)
-  shared/      tipos compartidos
+  main/         Electron main process
+    tasks.ts      "New task" drivers: Claude Code (stream-json + approvals), Codex (exec --json), OpenCode (run --format json)
+    xen.ts        Xen: routes voice/text requests through Claude Code, Codex, OpenCode or the Anthropic API
+    pty.ts        terminals (node-pty) and agent status detection
+    voice.ts      push-to-talk (uiohook), floating pill, Whisper transcription
+    remote.ts     HTTP + WebSocket server for remote access, pairing and tunnel
+    accounts.ts   agent sign-in detection and per-agent API keys
+    workspaces.ts recent projects, cloning, blank canvases, import/export
+    git.ts        status, diff, commit and worktrees (simple-git)
+    files.ts      file access restricted to open workspaces
+    store.ts      persistence and encrypted secrets (safeStorage)
+    redact.ts     hides secrets in any error shown or sent
+  preload/      minimal API exposed through contextBridge
+  renderer/     React UI: canvas, panels, settings, voice pill and the mobile remote client
+  shared/       shared types
 ```
 
-Seguridad: ventanas con `contextIsolation`, `sandbox` y sin `nodeIntegration`; los `<webview>` no reciben preload; el acceso a archivos se limita a los workspaces abiertos; el acceso remoto exige un token por dispositivo (guardado como hash) y se puede revocar.
+## Security
 
-## Limitaciones conocidas
+See [SECURITY.md](SECURITY.md) for the security model: isolated renderer, validated IPC, restricted file access, encrypted secrets, hashed device tokens and secret redaction.
 
-- La detección de "trabajando / te espera" es heurística: se basa en la actividad de salida de la terminal y en patrones de aprobación (y/n, *Allow*…).
-- Con un zoom distinto del 100 %, la selección con el ratón en terminales puede desplazarse ligeramente.
-- En la red local, el acceso remoto va por HTTP sin cifrar y el navegador del móvil no permite el micrófono; usa el túnel HTTPS para la voz desde el móvil.
+## Credits
 
-## Créditos
+- Logo and icons: original (`build/icon.svg`; `node build/make-icons.mjs` regenerates the PNG/ICO).
+- Wallpapers: works from the Birmingham Museums Trust collection, public domain (CC0). See `src/renderer/public/wallpapers/CREDITS.md`.
 
-- Logotipo e iconos: propios de Xora (`build/icon.svg`; `node build/make-icons.mjs` regenera el PNG y el ICO).
-- Fondos: obras de la colección de Birmingham Museums Trust, dominio público (CC0). Ver `src/renderer/public/wallpapers/CREDITS.md`.
+## License
+
+[MIT](LICENSE)

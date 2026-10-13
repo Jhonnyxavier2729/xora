@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { existsSync, statSync } from 'node:fs'
 import { userInfo } from 'node:os'
-import { basename } from 'node:path'
+import { basename, resolve, sep } from 'node:path'
 import {
   SECRET_NAMES,
   type AppInfo,
@@ -27,7 +28,7 @@ import {
   recentProjects
 } from './workspaces'
 import { askXen, providerStatuses, resetXen } from './xen'
-import { listDir, readFile, readNote, writeFile, writeNote } from './files'
+import { assertAllowed, listDir, readFile, readNote, writeFile, writeNote } from './files'
 import * as git from './git'
 import { ptys } from './pty'
 import {
@@ -163,7 +164,14 @@ export function registerIpc(): void {
   ipcMain.handle('shell:openExternal', (_e, url: string) => {
     if (/^https?:\/\//.test(url)) return shell.openExternal(url)
   })
-  ipcMain.handle('shell:openPath', (_e, path: string) => shell.openPath(path))
+  // Solo carpetas (nunca archivos: en Windows abrir un .exe lo ejecuta) de un espacio abierto o de los datos de Xora.
+  ipcMain.handle('shell:openPath', (_e, path: string) => {
+    const abs = resolve(String(path))
+    const inUserData = abs === app.getPath('userData') || abs.startsWith(app.getPath('userData') + sep)
+    if (!inUserData) assertAllowed(abs)
+    if (!existsSync(abs) || !statSync(abs).isDirectory()) throw new Error('Solo se pueden abrir carpetas')
+    return shell.openPath(abs)
+  })
 
   // --- Voz y Xen ---------------------------------------------------------------
   ipcMain.on('voice:toggle', (_e, mode?: VoiceMode) => toggleRecording(mode === 'dictate' ? 'dictate' : 'xen'))

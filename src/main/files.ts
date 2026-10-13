@@ -1,5 +1,5 @@
-import { promises as fs } from 'node:fs'
-import { dirname, join, relative, resolve, sep } from 'node:path'
+import { existsSync, promises as fs, realpathSync } from 'node:fs'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import type { FileEntry } from '@shared/types'
 import { store } from './store'
 
@@ -11,15 +11,30 @@ export function worktreesRoot(root: string): string {
   return resolve(dirname(root), `${resolve(root).split(sep).pop()}-worktrees`)
 }
 
+function real(path: string): string {
+  try {
+    return realpathSync.native(path)
+  } catch {
+    return path
+  }
+}
+
 /** Solo se permite tocar archivos dentro de un workspace abierto o de sus worktrees. */
 export function assertAllowed(target: string): string {
-  const abs = resolve(target)
-  const roots = store.getWorkspaces().flatMap((w) => [resolve(w.root), worktreesRoot(w.root)])
-  const ok = roots.some((root) => {
-    const rel = relative(root, abs)
-    return rel === '' || (!rel.startsWith('..') && !rel.includes(':'))
-  })
-  if (!ok) throw new Error(`Ruta fuera de los workspaces abiertos: ${abs}`)
+  const abs = resolve(String(target))
+  const roots = store
+    .getWorkspaces()
+    .flatMap((w) => [resolve(w.root), worktreesRoot(w.root)])
+    .flatMap((r) => [r, real(r)])
+  const inside = (p: string) =>
+    roots.some((root) => {
+      const rel = relative(root, p)
+      return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel))
+    })
+  if (!inside(abs)) throw new Error(`Ruta fuera de los workspaces abiertos: ${abs}`)
+  // Un enlace simbólico o junction dentro del proyecto no debe dar acceso a otra carpeta.
+  const resolvedReal = existsSync(abs) ? real(abs) : join(real(dirname(abs)), basename(abs))
+  if (!inside(resolvedReal)) throw new Error(`La ruta apunta fuera del workspace: ${abs}`)
   return abs
 }
 

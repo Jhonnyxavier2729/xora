@@ -99,6 +99,23 @@ if (process.env.XORA_USER_DATA) app.setPath('userData', process.env.XORA_USER_DA
 
 app.setAppUserModelId('dev.xora.app')
 
+// Defensa global para todo contenido web (incluidas las páginas del panel navegador):
+// ventanas nuevas → navegador del sistema; nada de file://, javascript: ni <webview> anidados.
+app.on('web-contents-created', (_e, contents) => {
+  contents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//i.test(url)) void shell.openExternal(url)
+    return { action: 'deny' }
+  })
+  if (contents.getType() === 'webview') {
+    const guard = (e: Electron.Event, url: string) => {
+      if (!/^(https?:|about:blank)/i.test(url)) e.preventDefault()
+    }
+    contents.on('will-navigate', guard)
+    contents.on('will-redirect', guard)
+    contents.on('will-attach-webview', (e) => e.preventDefault())
+  }
+})
+
 const gotLock = app.requestSingleInstanceLock()
 if (!gotLock) app.quit()
 app.on('second-instance', () => {

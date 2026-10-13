@@ -17,6 +17,8 @@ import type {
 } from '@shared/types'
 import { agentEnv } from './accounts'
 import { resolveCli, runCli } from './cli'
+import { assertAllowed } from './files'
+import { redact } from './redact'
 import { ptys } from './pty'
 
 // ---------------------------------------------------------------------------
@@ -151,6 +153,9 @@ class TaskManager extends EventEmitter {
   }
 
   private push(task: Task, item: TaskItem): void {
+    // Los errores incluyen la salida de los CLIs: nunca deben mostrar una clave.
+    if (item.kind === 'error' || item.kind === 'result') item = { ...item, text: redact(item.text) }
+    if (item.kind === 'tool' && item.output) item = { ...item, output: redact(item.output) }
     const idx = task.items.findIndex((i) => i.id === item.id && i.kind === item.kind)
     if (idx >= 0) task.items[idx] = item
     else task.items.push(item)
@@ -243,6 +248,8 @@ class TaskManager extends EventEmitter {
     if (!task) throw new Error('La tarea no está abierta')
     if (task.running && task.config.provider !== 'claude') throw new Error('El agente sigue trabajando; espera o detenlo.')
     if (!existsSync(task.cwd)) throw new Error('Un agente necesita una carpeta de proyecto para trabajar.')
+    // El agente solo trabaja dentro de un espacio abierto (o de sus worktrees).
+    assertAllowed(task.cwd)
     this.push(task, { kind: 'user', id: randomUUID(), text, files: files.length ? files : undefined })
     task.startedAt = Date.now()
     this.setRunning(task, true)
@@ -536,12 +543,12 @@ class TaskManager extends EventEmitter {
   private async runOpencode(task: Task, text: string, files: string[]): Promise<void> {
     const cli = await resolveCli('opencode')
     if (!cli) throw new Error('OpenCode no está instalado (npm install -g opencode-ai)')
-    const args = [...cli.prefix, 'run', '--format', 'json']
+    // El mensaje va primero: «-f» admite varios archivos y se tragaría el texto si fuera detrás.
+    const args = [...cli.prefix, 'run', text, '--format', 'json']
     if (task.config.model) args.push('-m', task.config.model)
     if (task.sessionId) args.push('--session', task.sessionId)
     if (task.config.mode === 'plan') args.push('--agent', 'plan')
     for (const f of files) args.push('-f', f)
-    args.push(text)
     let cost = 0
     await this.runLines(
       task,

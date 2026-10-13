@@ -1,3 +1,3 @@
-# Fondos
+# Wallpapers
 
-Las 50 imágenes de esta carpeta son reproducciones de obras de la colección de **Birmingham Museums Trust**, publicadas en dominio público (CC0). Cada fondo tiene una miniatura `*-thumb.webp` para el selector de aspecto.
+The 50 images in this folder are reproductions of works from the **Birmingham Museums Trust** collection, released into the public domain (CC0). Each wallpaper has a `*-thumb.webp` thumbnail used by the appearance picker.

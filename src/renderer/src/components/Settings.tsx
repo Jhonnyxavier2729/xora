@@ -4,6 +4,7 @@ import {
   AUTONOMY_FLAGS,
   SECRET_NAMES,
   type AccountStatus,
+  type TaskModels,
   type TaskProvider,
   type AgentId,
   type AgentVersionInfo,
@@ -77,27 +78,25 @@ function useSettings(): [Settings | null, (p: Partial<Settings>) => Promise<void
 // ---------------------------------------------------------------------------
 // Xen
 
-const PROVIDER_INFO: Record<XenProviderId, { name: string; models: [string, string][]; icon: string }> = {
-  'claude-cli': {
-    name: 'Claude Code',
-    icon: '✳',
-    models: [
-      ['opus', 'Opus'],
-      ['sonnet', 'Sonnet'],
-      ['haiku', 'Haiku (más rápido)'],
-      ['', 'Predeterminado']
-    ]
-  },
-  'codex-cli': { name: 'Codex', icon: '◎', models: [['', 'Predeterminado']] },
+/** Proveedores de Xen. Los CLIs toman su lista de modelos del propio agente (la misma que «Nueva tarea»). */
+const PROVIDER_INFO: Record<XenProviderId, { name: string; agent: TaskProvider | null; models: [string, string][] }> = {
+  'claude-cli': { name: 'Claude Code', agent: 'claude', models: [['opus', 'Opus']] },
+  'codex-cli': { name: 'Codex', agent: 'codex', models: [['', 'Modelo predeterminado']] },
+  'opencode-cli': { name: 'OpenCode', agent: 'opencode', models: [['', 'Modelo predeterminado']] },
   api: {
     name: 'API de Anthropic',
-    icon: '⚡',
+    agent: null,
     models: [
       ['claude-opus-5-5', 'Claude Opus 5.5'],
       ['claude-sonnet-5-5', 'Claude Sonnet 5.5'],
       ['claude-haiku-5-5', 'Claude Haiku 5.5']
     ]
   }
+}
+
+function ProviderBadge({ id }: { id: XenProviderId }) {
+  const agent = PROVIDER_INFO[id].agent
+  return <span className="provider-icon">{agent ? <ProviderIcon id={agent} size={18} /> : '⚡'}</span>
 }
 
 const HOLD_KEYS = [
@@ -115,11 +114,19 @@ const HOLD_KEYS = [
 function XenSection() {
   const [settings, update] = useSettings()
   const [statuses, setStatuses] = useState<XenProviderStatus[]>([])
+  const [models, setModels] = useState<TaskModels | null>(null)
   useEffect(() => {
     void window.api.xen.providers().then(setStatuses)
+    void window.api.task.models().then(setModels)
   }, [])
   if (!settings) return null
   const providers = settings.xenProviders
+  const modelOptions = (id: XenProviderId, current: string): [string, string][] => {
+    const agent = PROVIDER_INFO[id].agent
+    const list: [string, string][] = agent && models ? models[agent].map((m) => [m.id, m.label]) : PROVIDER_INFO[id].models
+    // Conserva el valor guardado aunque ya no esté en la lista (p. ej. el alias «opus»).
+    return list.some(([v]) => v === current) ? list : [[current, current || 'Modelo predeterminado'], ...list]
+  }
   const setProviders = (list: XenProviderConfig[]) => void update({ xenProviders: list })
   const move = (i: number, d: number) => {
     const list = [...providers]
@@ -154,7 +161,7 @@ function XenSection() {
                   ▼
                 </button>
               </div>
-              <span className="provider-icon">{info.icon}</span>
+              <ProviderBadge id={p.id} />
               <div className="grow">
                 <div className="provider-name">
                   <strong>{info.name}</strong>
@@ -164,21 +171,13 @@ function XenSection() {
               </div>
               <label className="provider-model">
                 Modelo
-                {p.id === 'codex-cli' ? (
-                  <input
-                    defaultValue={p.model}
-                    placeholder="predeterminado"
-                    onBlur={(e) => setProviders(providers.map((x) => (x.id === p.id ? { ...x, model: e.target.value.trim() } : x)))}
-                  />
-                ) : (
-                  <select value={p.model} onChange={(e) => setProviders(providers.map((x) => (x.id === p.id ? { ...x, model: e.target.value } : x)))}>
-                    {info.models.map(([v, label]) => (
-                      <option key={v} value={v}>
-                        {label}
-                      </option>
-                    ))}
-                  </select>
-                )}
+                <select value={p.model} onChange={(e) => setProviders(providers.map((x) => (x.id === p.id ? { ...x, model: e.target.value } : x)))}>
+                  {modelOptions(p.id, p.model).map(([v, label]) => (
+                    <option key={v || 'default'} value={v}>
+                      {label}
+                    </option>
+                  ))}
+                </select>
               </label>
               <button className="icon-btn small" title="Quitar" onClick={() => setProviders(providers.filter((x) => x.id !== p.id))}>
                 <IconClose size={13} />
@@ -202,7 +201,7 @@ function XenSection() {
         <details className="s-details">
           <summary>Cómo funcionan las alternativas</summary>
           <p>
-            Con Claude Code o Codex, Xen usa tu propia suscripción del agente: no necesitas una clave de API. Xen le pasa el estado
+            Con Claude Code, Codex u OpenCode, Xen usa tu propia cuenta del agente: no necesitas una clave de API. Xen le pasa el estado
             del lienzo y lo que dijiste, y el agente devuelve un plan que Xora ejecuta (enviar un mensaje a un agente, crear un
             panel…). Con la API de Anthropic, Xen usa herramientas directamente y necesita una clave en «Claves API».
           </p>
@@ -392,6 +391,15 @@ function AgentsSection() {
             />
           </Row>
         ))}
+        <Row
+          title="OpenCode"
+          desc={
+            <>
+              OpenCode usa los permisos de su propia configuración (<code>opencode.json</code>); por defecto puede editar y ejecutar
+              comandos sin preguntar.
+            </>
+          }
+        />
         <p className="s-warn">⚠ Con la autonomía activada el agente puede editar archivos y ejecutar comandos sin preguntar. Úsala en proyectos con git, donde puedes revisar y deshacer cambios.</p>
       </Group>
 
@@ -889,7 +897,7 @@ function HelpSection() {
       <h2>Ayuda</h2>
       <Group title="Primeros pasos">
         <Row title="1. Crea un espacio" desc="Clic en «+» en Espacios: abre una carpeta, clona de GitHub o empieza un lienzo en blanco." />
-        <Row title="2. Añade un agente" desc="Clic derecho en el lienzo → Nueva tarea, o la barra de Herramientas. Claude Code, Codex, OpenCode, Cursor y Gemini." />
+        <Row title="2. Añade un agente" desc="Clic derecho en el lienzo → Nueva tarea, o la barra de Herramientas. Elige Claude Code, Codex u OpenCode y su modelo." />
         <Row title="3. Habla con Xen" desc="Mantén Ctrl derecho y di, por ejemplo, «dile a Claude que añada tests al login». Xen elige el agente y se lo envía." />
         <Row title="4. Revisa los cambios" desc="El panel de Git muestra el diff; haz clic en una línea para comentarla y enviársela al agente." />
         <Row title="5. Síguelo desde el móvil" desc="Ajustes → Acceso remoto: escanea el QR y responde a tus agentes desde cualquier sitio." />
@@ -967,7 +975,7 @@ interface Section {
 
 const SECTIONS: Section[] = [
   { id: 'xen', label: 'Xen', icon: <XenFace size={16} />, keywords: 'asistente voz modelo claude codex api alternativas actuar preguntar tecla transcripción idioma', render: () => <XenSection /> },
-  { id: 'agents', label: 'Agentes', icon: <IconAgent size={15} />, keywords: 'autonomía permisos versiones actualizar claude codex cursor gemini opencode', render: () => <AgentsSection /> },
+  { id: 'agents', label: 'Agentes', icon: <IconAgent size={15} />, keywords: 'autonomía permisos versiones actualizar cuentas sesión claude codex opencode', render: () => <AgentsSection /> },
   { id: 'remote', label: 'Acceso remoto', icon: <IconPhone size={15} />, keywords: 'móvil qr túnel cloudflare dispositivos emparejar', render: () => <RemoteSection /> },
   { id: 'appearance', label: 'Apariencia', icon: <span>🎨</span>, keywords: 'tema acento fondo color imagen opacidad oscurecer', render: () => <AppearanceSection /> },
   { id: 'shortcuts', label: 'Atajos de teclado', icon: <span>⌨</span>, keywords: 'teclas atajos ctrl', render: () => <ShortcutsSection /> },

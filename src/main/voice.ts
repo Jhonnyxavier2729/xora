@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import type { VoiceState } from '@shared/types'
 import { getCanvasWindow } from './canvas'
 import { askXen } from './xen'
+import { redact } from './redact'
 import { secrets, store } from './store'
 
 const STT = {
@@ -30,7 +31,7 @@ export async function transcribe(audio: Buffer, mime: string): Promise<string> {
   })
   if (!res.ok) {
     const body = await res.text().catch(() => '')
-    throw new Error(`La transcripción falló (${res.status}): ${body.slice(0, 200)}`)
+    throw new Error(redact(`La transcripción falló (${res.status}): ${body.slice(0, 200)}`))
   }
   const json = (await res.json()) as { text?: string }
   const text = (json.text ?? '').trim()

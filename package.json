@@ -59,6 +59,13 @@
       "node_modules/node-pty/**",
       "node_modules/uiohook-napi/**"
     ],
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false,
+      "enableCookieEncryption": true,
+      "onlyLoadAppFromAsar": true
+    },
     "win": {
       "target": [
         "nsis"

@@ -57,7 +57,8 @@ export interface AccountStatus {
   usesApiKey: boolean
 }
 
-export type AgentId = 'claude' | 'codex' | 'opencode' | 'cursor' | 'gemini' | 'custom'
+/** Xora trabaja con tres agentes: Claude Code, Codex y OpenCode (más un comando propio si quieres). */
+export type AgentId = 'claude' | 'codex' | 'opencode' | 'custom'
 
 export interface Panel {
   id: string
@@ -141,8 +142,6 @@ export const AGENTS: AgentDefinition[] = [
   { id: 'claude', name: 'Claude Code', command: 'claude', installHint: 'npm install -g @anthropic-ai/claude-code' },
   { id: 'codex', name: 'Codex', command: 'codex', installHint: 'npm install -g @openai/codex' },
   { id: 'opencode', name: 'OpenCode', command: 'opencode', installHint: 'npm install -g opencode-ai' },
-  { id: 'cursor', name: 'Cursor CLI', command: 'cursor-agent', installHint: 'https://cursor.com/cli' },
-  { id: 'gemini', name: 'Gemini CLI', command: 'gemini', installHint: 'npm install -g @google/gemini-cli' }
 ]
 
 export interface FileEntry {
@@ -219,7 +218,7 @@ export interface Settings {
   taskDefaults: TaskConfig
 }
 
-export type XenProviderId = 'claude-cli' | 'codex-cli' | 'api'
+export type XenProviderId = 'claude-cli' | 'codex-cli' | 'opencode-cli' | 'api'
 
 export interface XenProviderConfig {
   id: XenProviderId
@@ -236,9 +235,7 @@ export interface XenProviderStatus {
 /** Banderas de autonomía que se añaden al lanzar cada agente en una terminal. */
 export const AUTONOMY_FLAGS: Partial<Record<AgentId, string>> = {
   claude: '--dangerously-skip-permissions',
-  codex: '--full-auto',
-  cursor: '--force',
-  gemini: '--yolo'
+  codex: '--full-auto'
 }
 
 export interface AgentVersionInfo {
@@ -290,7 +287,8 @@ export const DEFAULT_SETTINGS: Settings = {
   panelOpacity: 100,
   xenProviders: [
     { id: 'claude-cli', model: 'opus' },
-    { id: 'api', model: 'claude-opus-5-5' }
+    { id: 'codex-cli', model: '' },
+    { id: 'opencode-cli', model: '' }
   ],
   xenActWithoutAsking: true,
   agentAutonomy: {},

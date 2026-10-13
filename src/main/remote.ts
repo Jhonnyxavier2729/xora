@@ -3,7 +3,7 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { createServer, request as httpRequest, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { networkInterfaces } from 'node:os'
-import { extname, join, normalize, resolve } from 'node:path'
+import { extname, join, normalize, resolve, sep } from 'node:path'
 import QRCode from 'qrcode'
 import { WebSocketServer, type WebSocket } from 'ws'
 import type {
@@ -18,6 +18,7 @@ import type {
 import { createPanel, getCanvasWindow } from './canvas'
 import { askXen } from './xen'
 import { ptys } from './pty'
+import { redact } from './redact'
 import { store, type PersistedDevice } from './store'
 import { handleUtterance } from './voice'
 
@@ -44,6 +45,10 @@ let tunnelUrl: string | null = null
 let tunnelStatus: RemoteState['tunnelStatus'] = 'off'
 let onChange: (() => void) | null = null
 const pairAttempts = new Map<string, number[]>()
+const MAX_PAIR_FAILURES = 20
+let pairFailures = 0
+/** Subprotocolo del WebSocket; el token del dispositivo viaja como segundo subprotocolo, nunca en la URL. */
+const WS_PROTOCOL = 'xora'
 
 interface Client {
   ws: WebSocket
@@ -86,8 +91,20 @@ function bearer(req: IncomingMessage): string | null {
   return null
 }
 
+/** Cabeceras comunes: sin caché, sin sniffing de tipos, sin incrustar en iframes, sin enviar el Referer. */
+const SECURITY_HEADERS = {
+  'Cache-Control': 'no-store',
+  'X-Content-Type-Options': 'nosniff',
+  'X-Frame-Options': 'DENY',
+  'Referrer-Policy': 'no-referrer',
+  'Cross-Origin-Opener-Policy': 'same-origin',
+  'Cross-Origin-Resource-Policy': 'same-origin',
+  'Permissions-Policy': 'camera=(), geolocation=(), microphone=(self)'
+}
+
 function json(res: ServerResponse, status: number, body: unknown): void {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
+  if (res.headersSent) return
+  res.writeHead(status, { ...SECURITY_HEADERS, 'Content-Type': 'application/json; charset=utf-8' })
   res.end(JSON.stringify(body))
 }
 
@@ -144,8 +161,15 @@ function serveStatic(req: IncomingMessage, res: ServerResponse, pathname: string
     return
   }
   const base = resolve(join(__dirname, '../renderer'))
-  const file = resolve(normalize(join(base, decodeURIComponent(target))))
-  if (!file.startsWith(base) || !existsSync(file) || statSync(file).isDirectory()) {
+  let decoded: string
+  try {
+    decoded = decodeURIComponent(target)
+  } catch {
+    json(res, 400, { error: 'Ruta no válida' })
+    return
+  }
+  const file = resolve(normalize(join(base, decoded)))
+  if (!file.startsWith(base + sep) || !existsSync(file) || statSync(file).isDirectory()) {
     json(res, 404, { error: 'No encontrado' })
     return
   }
@@ -154,7 +178,7 @@ function serveStatic(req: IncomingMessage, res: ServerResponse, pathname: string
     json(res, 404, { error: 'No encontrado' })
     return
   }
-  res.writeHead(200, { 'Content-Type': MIME[extname(file)] ?? 'application/octet-stream' })
+  res.writeHead(200, { ...SECURITY_HEADERS, 'Content-Type': MIME[extname(file)] ?? 'application/octet-stream' })
   res.end(readFileSync(file))
 }
 
@@ -165,14 +189,30 @@ async function handleApi(req: IncomingMessage, res: ServerResponse, pathname: st
   if (pathname === '/api/pair' && req.method === 'POST') {
     const ip = req.socket.remoteAddress ?? '?'
     if (rateLimited(ip)) return json(res, 429, { error: 'Demasiados intentos' })
-    const body = JSON.parse((await readBody(req)).toString('utf8') || '{}') as { code?: string; name?: string }
-    if (!pairCode || !pairExpiresAt || Date.now() > pairExpiresAt || body.code?.toUpperCase() !== pairCode) {
+    const body = JSON.parse((await readBody(req)).toString('utf8') || '{}') as { code?: unknown; name?: unknown }
+    const code = typeof body.code === 'string' ? body.code.trim().toUpperCase() : ''
+    const valid =
+      !!pairCode &&
+      !!pairExpiresAt &&
+      Date.now() <= pairExpiresAt &&
+      code.length === pairCode.length &&
+      timingSafeEqual(Buffer.from(code), Buffer.from(pairCode))
+    if (!valid) {
+      // Tras el túnel todas las peticiones llegan desde 127.0.0.1: además del límite por IP,
+      // el código se anula tras demasiados fallos en total.
+      pairFailures++
+      if (pairFailures >= MAX_PAIR_FAILURES && pairCode) {
+        pairCode = null
+        pairExpiresAt = null
+        onChange?.()
+      }
       return json(res, 401, { error: 'Código de emparejamiento no válido o caducado' })
     }
+    pairFailures = 0
     const token = randomBytes(32).toString('base64url')
     const device: PersistedDevice = {
       id: randomUUID(),
-      name: (body.name || 'Dispositivo').slice(0, 60),
+      name: (typeof body.name === 'string' && body.name.trim() ? body.name : 'Dispositivo').replace(/[\u0000-\u001f]/g, '').slice(0, 60),
       tokenHash: hash(token),
       createdAt: Date.now(),
       lastSeenAt: Date.now()
@@ -322,6 +362,7 @@ export function newPairCode(): void {
   const bytes = randomBytes(8)
   pairCode = [...bytes].map((b) => alphabet[b % alphabet.length]).join('')
   pairExpiresAt = Date.now() + PAIR_TTL_MS
+  pairFailures = 0
   onChange?.()
 }
 
@@ -329,18 +370,33 @@ export async function enableRemote(): Promise<void> {
   if (server) return
   const port = store.getSettings().remotePort
   server = createServer((req, res) => {
-    const pathname = new URL(req.url ?? '/', 'http://x').pathname
-    if (pathname.startsWith('/api/')) {
-      handleApi(req, res, pathname).catch((err: Error) => json(res, 500, { error: err.message }))
-      return
+    // Cualquier excepción se queda en esta petición: nunca tumba el proceso principal.
+    try {
+      const pathname = new URL(req.url ?? '/', 'http://x').pathname
+      if (pathname.startsWith('/api/')) {
+        handleApi(req, res, pathname).catch((err: Error) => json(res, 500, { error: redact(err.message) }))
+        return
+      }
+      if (req.method !== 'GET') return json(res, 405, { error: 'Método no permitido' })
+      serveStatic(req, res, pathname)
+    } catch (err) {
+      json(res, 400, { error: redact((err as Error).message) })
     }
-    if (req.method !== 'GET') return json(res, 405, { error: 'Método no permitido' })
-    serveStatic(req, res, pathname)
   })
-  wss = new WebSocketServer({ noServer: true })
+  server.requestTimeout = 120_000
+  server.headersTimeout = 20_000
+  wss = new WebSocketServer({
+    noServer: true,
+    maxPayload: 1024 * 1024,
+    handleProtocols: (protocols) => (protocols.has(WS_PROTOCOL) ? WS_PROTOCOL : false)
+  })
   server.on('upgrade', (req, socket, head) => {
     const url = new URL(req.url ?? '/', 'http://x')
-    const device = url.pathname === '/ws' ? authenticate(url.searchParams.get('token')) : null
+    const offered = String(req.headers['sec-websocket-protocol'] ?? '')
+      .split(',')
+      .map((p) => p.trim())
+    const token = offered.includes(WS_PROTOCOL) ? (offered.find((p) => p && p !== WS_PROTOCOL) ?? null) : null
+    const device = url.pathname === '/ws' ? authenticate(token) : null
     if (!device) {
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')
       socket.destroy()

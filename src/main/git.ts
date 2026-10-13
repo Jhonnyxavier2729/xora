@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { join, resolve, sep } from 'node:path'
 import { simpleGit } from 'simple-git'
 import type { GitStatus, Worktree } from '@shared/types'
 import { assertAllowed, worktreesRoot } from './files'
@@ -40,8 +40,10 @@ export async function diff(cwd: string, file?: string): Promise<string> {
 
 export async function commit(cwd: string, message: string, files?: string[]): Promise<string> {
   const g = git(cwd)
-  await g.add(files && files.length ? files : ['-A'])
-  const res = await g.commit(message)
+  // «--» evita que un nombre de archivo como «--exec=…» se interprete como opción.
+  if (files && files.length) await g.raw(['add', '--', ...files.map(String)])
+  else await g.raw(['add', '-A'])
+  const res = await g.commit(String(message))
   return res.commit
 }
 
@@ -82,7 +84,11 @@ export async function createWorktree(root: string, branch: string): Promise<Work
 }
 
 export async function removeWorktree(root: string, path: string, force: boolean): Promise<void> {
-  const args = ['worktree', 'remove', path]
+  // Solo se eliminan worktrees creados por Xora, dentro de <repo>-worktrees.
+  const abs = resolve(String(path))
+  const base = worktreesRoot(root)
+  if (!abs.startsWith(base + sep)) throw new Error('Solo se pueden eliminar los worktrees creados por Xora')
+  const args = ['worktree', 'remove', abs]
   if (force) args.push('--force')
   await git(root).raw(args)
 }

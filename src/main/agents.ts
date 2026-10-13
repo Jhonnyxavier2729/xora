@@ -5,8 +5,7 @@ import { resolveCli, runCli } from './cli'
 const NPM_PACKAGES: Partial<Record<AgentId, string>> = {
   claude: '@anthropic-ai/claude-code',
   codex: '@openai/codex',
-  opencode: 'opencode-ai',
-  gemini: '@google/gemini-cli'
+  opencode: 'opencode-ai'
 }
 
 let cache: { at: number; value: Record<AgentId, boolean> } | null = null

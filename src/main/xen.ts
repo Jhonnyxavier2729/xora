@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -14,6 +14,7 @@ import {
 import { confirmActions, createPanel, focusPanel } from './canvas'
 import { resolveCli, runCli } from './cli'
 import { ptys } from './pty'
+import { redact } from './redact'
 import { secrets, store } from './store'
 
 /** La conversación con Xen se reinicia tras este tiempo sin uso. */
@@ -21,7 +22,7 @@ const SESSION_TTL_MS = 10 * 60 * 1000
 const MAX_TOOL_ROUNDS = 8
 const CLI_TIMEOUT_MS = 90_000
 
-const RULES = `Eres Xen, el compañero de voz de Xora: un lienzo donde el usuario tiene workspaces (carpetas de proyecto) con paneles de terminal, agentes de código (Claude Code, Codex, OpenCode, Cursor, Gemini), editor, navegador, notas y git.
+const RULES = `Eres Xen, el compañero de voz de Xora: un lienzo donde el usuario tiene workspaces (carpetas de proyecto) con paneles de terminal, agentes de código (Claude Code, Codex y OpenCode), editor, navegador, notas y git.
 
 El usuario te habla por voz; lo que recibes es una transcripción y puede tener errores de reconocimiento. Entiende la intención y actúa:
 - Si pide algo para un agente ("dile a Claude que...", "que el agente arregle..."), reenvía la petición al panel de agente adecuado (send_to_panel). Reescribe la petición como una instrucción clara y completa, en el idioma del usuario, sin inventar requisitos.
@@ -356,7 +357,7 @@ function planPrompt(transcript: string): string {
 
 Devuelve SOLO un objeto JSON con "reply" (tu respuesta) y "actions" (lista de acciones a ejecutar, vacía si solo respondes o preguntas). Acciones posibles:
 - {"tool":"send_to_panel","panel_id":"...","text":"..."}
-- {"tool":"create_agent","workspace_id":"...","agent":"claude|codex|opencode|cursor|gemini","prompt":"..."}
+- {"tool":"create_agent","workspace_id":"...","agent":"claude|codex|opencode","prompt":"..."}
 - {"tool":"create_panel","workspace_id":"...","type":"terminal|browser|notes|editor|git","url":"..."}
 - {"tool":"focus_panel","panel_id":"..."}
 
@@ -399,6 +400,18 @@ async function executePlan(plan: { reply: string; actions: Record<string, unknow
   return { reply: plan.reply || 'Hecho.', actions }
 }
 
+/**
+ * Borra la carpeta temporal sin ocultar el error original: si el CLI agotó el tiempo, Windows
+ * puede tenerla bloqueada un momento (EPERM), y eso no debe tapar el «no respondió».
+ */
+function cleanup(dir: string): void {
+  try {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 })
+  } catch {
+    // Se queda en %TEMP%; Windows la limpiará.
+  }
+}
+
 async function askViaClaudeCli(transcript: string, model: string): Promise<XenResult> {
   const args = [
     '-p',
@@ -439,7 +452,39 @@ async function askViaCodexCli(transcript: string, model: string): Promise<XenRes
     }
     return executePlan(parsePlan(text))
   } finally {
-    rmSync(dir, { recursive: true, force: true })
+    cleanup(dir)
+  }
+}
+
+async function askViaOpencodeCli(transcript: string, model: string): Promise<XenResult> {
+  // El contexto va en un archivo adjunto: la línea de comandos de Windows no admite textos largos.
+  const dir = mkdtempSync(join(tmpdir(), 'xen-'))
+  const file = join(dir, 'xen-contexto.md')
+  try {
+    writeFileSync(file, planPrompt(transcript), 'utf8')
+    // El mensaje va antes de -f: esa opción admite varios archivos y se tragaría lo que venga detrás.
+    const args = ['run', 'Sigue las instrucciones del archivo adjunto y responde SOLO con el objeto JSON que pide.', '--format', 'json']
+    if (model) args.push('-m', model)
+    args.push('-f', file)
+    const { code, stdout, stderr } = await runCli('opencode', args, { timeoutMs: CLI_TIMEOUT_MS, cwd: dir })
+    const text = stdout
+      .split(/\r?\n/)
+      .filter((l) => l.startsWith('{'))
+      .map((l) => {
+        try {
+          const ev = JSON.parse(l) as { type?: string; part?: { text?: string }; error?: { data?: { message?: string } } }
+          if (ev.type === 'error') throw new Error(ev.error?.data?.message ?? 'Error de OpenCode')
+          return ev.type === 'text' ? (ev.part?.text ?? '') : ''
+        } catch (err) {
+          if (err instanceof SyntaxError) return ''
+          throw err
+        }
+      })
+      .join('')
+    if (!text) throw new Error(`OpenCode no respondió (${code}): ${stderr.slice(-200)}`)
+    return executePlan(parsePlan(text))
+  } finally {
+    cleanup(dir)
   }
 }
 
@@ -447,11 +492,12 @@ async function askViaCodexCli(transcript: string, model: string): Promise<XenRes
 // Orden de proveedores con alternativas.
 
 export async function providerStatuses(): Promise<XenProviderStatus[]> {
-  const [claude, codex] = await Promise.all([resolveCli('claude'), resolveCli('codex')])
+  const [claude, codex, opencode] = await Promise.all([resolveCli('claude'), resolveCli('codex'), resolveCli('opencode')])
   const hasKey = !!secrets.get('anthropic') || !!process.env.ANTHROPIC_API_KEY
   return [
     { id: 'claude-cli', ready: !!claude, detail: claude ? 'Claude Code en este ordenador' : 'Claude Code no está instalado' },
     { id: 'codex-cli', ready: !!codex, detail: codex ? 'Codex en este ordenador' : 'Codex no está instalado' },
+    { id: 'opencode-cli', ready: !!opencode, detail: opencode ? 'OpenCode en este ordenador' : 'OpenCode no está instalado' },
     { id: 'api', ready: hasKey, detail: hasKey ? 'API de Anthropic con tu clave' : 'Falta la clave de Anthropic' }
   ]
 }
@@ -462,6 +508,8 @@ async function askWith(provider: XenProviderConfig, transcript: string): Promise
       return askViaClaudeCli(transcript, provider.model)
     case 'codex-cli':
       return askViaCodexCli(transcript, provider.model)
+    case 'opencode-cli':
+      return askViaOpencodeCli(transcript, provider.model)
     case 'api':
       return askViaApi(transcript, provider.model)
   }
@@ -488,5 +536,5 @@ export async function askXen(transcript: string): Promise<XenResult> {
       errors.push(`${status.detail}: ${(err as Error).message}`)
     }
   }
-  throw new Error(`Xen no pudo responder. ${errors.join(' · ')}`)
+  throw new Error(redact(`Xen no pudo responder. ${errors.join(' · ')}`))
 }

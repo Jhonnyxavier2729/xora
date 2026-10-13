@@ -125,7 +125,8 @@ function renderPair(error?: string): void {
 function connect(): void {
   if (!token) return renderPair()
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
-  ws = new WebSocket(`${proto}://${location.host}/ws?token=${encodeURIComponent(token)}`)
+  // El token va como subprotocolo (cabecera), no en la URL: así no queda en registros de proxies o del túnel.
+  ws = new WebSocket(`${proto}://${location.host}/ws`, ['xora', token])
   ws.onopen = () => {
     reconnectDelay = 1000
     document.body.classList.remove('offline')
