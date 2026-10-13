@@ -2,9 +2,15 @@
   "name": "xora",
   "version": "0.1.0",
   "private": true,
-  "description": "Lienzo infinito para trabajar con agentes de código, terminales, editor, navegador, notas, voz y acceso remoto.",
+  "description": "An infinite, zoomable canvas for working with AI coding agents (Claude Code, Codex, OpenCode), with voice and remote access.",
   "main": "out/main/index.js",
   "license": "MIT",
+  "author": "Jhonnyxavier2729",
+  "homepage": "https://github.com/Jhonnyxavier2729/xora",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Jhonnyxavier2729/xora.git"
+  },
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
