@@ -7,6 +7,7 @@ import { registerIpc } from './ipc'
 import { ptys } from './pty'
 import { broadcastState, disableRemote, remoteState, setRemoteChangeListener } from './remote'
 import { flushStore, store } from './store'
+import { startAutoUpdates } from './updater'
 import { createPillWindow, startHotkeys, stopHotkeys } from './voice'
 import { handleAssetScheme, registerAssetScheme } from './wallpaper'
 
@@ -30,9 +31,11 @@ function createMainWindow(): BrowserWindow {
     title: 'Xora',
     autoHideMenuBar: true,
     icon: join(app.getAppPath(), 'build', 'icon.png'),
-    // Sin barra de título: la interfaz flota sobre el lienzo y Windows dibuja solo sus botones.
-    titleBarStyle: 'hidden',
-    titleBarOverlay: { color: '#00000000', symbolColor: '#e6ebf5', height: 44 },
+    // Sin barra de título: la interfaz flota sobre el lienzo. Windows y Linux dibujan sus botones a la
+    // derecha; en macOS quedan los semáforos a la izquierda (la barra superior les deja sitio).
+    ...(process.platform === 'darwin'
+      ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 16, y: 18 } }
+      : { titleBarStyle: 'hidden' as const, titleBarOverlay: { color: '#00000000', symbolColor: '#e6ebf5', height: 44 } }),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       contextIsolation: true,
@@ -126,7 +129,10 @@ app.on('second-instance', () => {
 })
 
 app.whenReady().then(async () => {
-  Menu.setApplicationMenu(null)
+  // En macOS el menú de la app es el que da Cmd+C/V/Z/Q; en Windows y Linux no hace falta.
+  Menu.setApplicationMenu(
+    process.platform === 'darwin' ? Menu.buildFromTemplate([{ role: 'appMenu' }, { role: 'editMenu' }, { role: 'windowMenu' }]) : null
+  )
   handleAssetScheme()
   // Micrófono solo para las páginas propias (píldora y lienzo); los <webview> no lo obtienen.
   session.defaultSession.setPermissionRequestHandler((wc, permission, callback, details) => {
@@ -146,6 +152,7 @@ app.whenReady().then(async () => {
   createPillWindow()
   const hotkeyWarning = await startHotkeys()
   if (hotkeyWarning) mainWindow.webContents.once('did-finish-load', () => send('app:warning', hotkeyWarning))
+  startAutoUpdates((message) => send('app:notice', message))
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) mainWindow = createMainWindow()

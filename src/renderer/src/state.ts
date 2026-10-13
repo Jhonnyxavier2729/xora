@@ -61,6 +61,9 @@ interface AppState {
   /** Paneles seleccionados (se mueven juntos). */
   selected: string[]
   lookOpen: { x: number; y: number } | null
+  /** Paneles que se están arrastrando: se ocultan y los sigue un fantasma desplazado (dx, dy). */
+  dragGhost: { ids: string[]; dx: number; dy: number } | null
+  setDragGhost(ghost: { ids: string[]; dx: number; dy: number } | null): void
 
   setVoice(state: VoiceState, mode?: 'xen' | 'dictate'): void
   setSelected(ids: string[]): void
@@ -114,6 +117,11 @@ export const useApp = create<AppState>((set, get) => ({
   voiceMode: 'xen',
   selected: [],
   lookOpen: null,
+  dragGhost: null,
+
+  setDragGhost(dragGhost) {
+    set({ dragGhost })
+  },
 
   setVoice(voice, mode) {
     set({ voice, voiceMode: mode ?? get().voiceMode })

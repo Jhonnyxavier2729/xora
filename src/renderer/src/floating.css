@@ -85,6 +85,11 @@
   -webkit-app-region: drag;
 }
 
+/* macOS: semáforos a la izquierda y sin botones de ventana a la derecha */
+:root[data-platform='darwin'] .titlebar {
+  padding: 6px 10px 0 84px;
+}
+
 .titlebar .pill {
   pointer-events: auto;
   -webkit-app-region: no-drag;

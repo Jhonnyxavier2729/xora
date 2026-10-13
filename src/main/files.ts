@@ -1,6 +1,6 @@
 import { existsSync, promises as fs, realpathSync } from 'node:fs'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import type { FileEntry } from '@shared/types'
+import type { FileEntry, NoteSummary } from '@shared/types'
 import { store } from './store'
 
 const HIDDEN = new Set(['.git', 'node_modules', '.DS_Store', 'Thumbs.db'])
@@ -69,6 +69,24 @@ export async function readNote(workspaceId: string, panelId: string): Promise<st
 
 export async function writeNote(workspaceId: string, panelId: string, content: string): Promise<void> {
   await fs.writeFile(join(store.notesDir(workspaceId), `${safeName(panelId)}.md`), content, 'utf8')
+}
+
+/** Título (primera línea con texto) y fecha de edición de varias notas, para el menú Extras. */
+export async function noteSummaries(refs: { wsId: string; panelId: string }[]): Promise<NoteSummary[]> {
+  const out: NoteSummary[] = []
+  for (const { wsId, panelId } of refs) {
+    if (typeof wsId !== 'string' || typeof panelId !== 'string') continue
+    const file = join(store.notesDir(wsId), `${safeName(panelId)}.md`)
+    try {
+      const [stat, content] = await Promise.all([fs.stat(file), fs.readFile(file, 'utf8')])
+      const line = content.split(/\r?\n/).find((l) => l.trim()) ?? ''
+      const title = line.replace(/^[#>*\-\s]+|\[[ x]\]\s*/gi, '').replace(/[*_`]/g, '').trim()
+      out.push({ wsId, panelId, title, updatedAt: stat.mtimeMs })
+    } catch {
+      // Nota aún sin guardar.
+    }
+  }
+  return out
 }
 
 function safeName(name: string): string {

@@ -85,6 +85,34 @@ export interface Panel {
   task?: TaskConfig
 }
 
+/** Ventana de uso de una suscripción (sesión de 5 h o semana). */
+export interface UsageWindow {
+  kind: 'session' | 'week'
+  usedPercent: number
+  resetsAt: number | null
+}
+
+export interface AgentUsage {
+  plan?: string
+  windows: UsageWindow[]
+  problem?: 'signed-out' | 'expired' | 'api-key' | 'rate-limited' | 'unreachable'
+}
+
+export interface UsageReport {
+  claude: AgentUsage
+  codex: AgentUsage
+  updatedAt: number
+}
+
+/** Resumen de una nota para el menú Extras. */
+export interface NoteSummary {
+  wsId: string
+  panelId: string
+  /** Primera línea con texto, sin marcas de Markdown. */
+  title: string
+  updatedAt: number
+}
+
 export type NoteColor = 'yellow' | 'green' | 'pink' | 'blue' | 'dark'
 
 export interface Viewport {
@@ -173,6 +201,25 @@ export interface Worktree {
 
 export type SttProvider = 'groq' | 'openai'
 
+/** Quién pone la voz a Xen: la de Windows/macOS (gratis) u OpenAI (natural, con tu clave). */
+export type TtsProvider = 'system' | 'openai'
+
+/** Voces de OpenAI (gpt-4o-mini-tts). Todas hablan español con naturalidad. */
+export const OPENAI_TTS_VOICES: { id: string; label: string }[] = [
+  { id: 'marin', label: 'Marin · cálida y natural' },
+  { id: 'cedar', label: 'Cedar · tranquila y clara' },
+  { id: 'coral', label: 'Coral · cercana y alegre' },
+  { id: 'sage', label: 'Sage · serena' },
+  { id: 'nova', label: 'Nova · enérgica' },
+  { id: 'shimmer', label: 'Shimmer · suave' },
+  { id: 'ash', label: 'Ash · grave y firme' },
+  { id: 'ballad', label: 'Ballad · expresiva' },
+  { id: 'verse', label: 'Verse · directa' },
+  { id: 'echo', label: 'Echo · neutra' },
+  { id: 'onyx', label: 'Onyx · profunda' },
+  { id: 'alloy', label: 'Alloy · equilibrada' }
+]
+
 export interface Settings {
   sttProvider: SttProvider
   /** Tecla para mantener pulsada y hablar (nombre de UiohookKey). */
@@ -180,6 +227,14 @@ export interface Settings {
   /** Atajo global alternativo para alternar la grabación. */
   toggleShortcut: string
   speakReplies: boolean
+  /** Motor de voz para las respuestas de Xen. */
+  ttsProvider: TtsProvider
+  /** Voz de OpenAI (id de OPENAI_TTS_VOICES). */
+  ttsVoice: string
+  /** Nombre de la voz del sistema; vacío = la primera en el idioma elegido. */
+  systemVoice: string
+  /** Velocidad de lectura, 0.7–1.5. */
+  speechRate: number
   language: string
   remotePort: number
   shell: string
@@ -235,7 +290,8 @@ export interface XenProviderStatus {
 /** Banderas de autonomía que se añaden al lanzar cada agente en una terminal. */
 export const AUTONOMY_FLAGS: Partial<Record<AgentId, string>> = {
   claude: '--dangerously-skip-permissions',
-  codex: '--full-auto'
+  // Lo que antes era --full-auto (Codex lo quitó): trabaja en la carpeta sin pedir permiso, dentro del sandbox.
+  codex: '--sandbox workspace-write --ask-for-approval never'
 }
 
 export interface AgentVersionInfo {
@@ -275,6 +331,10 @@ export const DEFAULT_SETTINGS: Settings = {
   holdKey: 'CtrlRight',
   toggleShortcut: 'CommandOrControl+Shift+Space',
   speakReplies: false,
+  ttsProvider: 'system',
+  ttsVoice: 'marin',
+  systemVoice: '',
+  speechRate: 1,
   language: 'es',
   remotePort: 47321,
   shell: '',

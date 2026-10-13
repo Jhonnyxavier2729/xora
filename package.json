@@ -16,10 +16,14 @@
     "build": "electron-vite build",
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
-    "dist": "electron-vite build && electron-builder --win --x64"
+    "dist": "electron-vite build && electron-builder --win --x64",
+    "dist:win": "electron-vite build && electron-builder --win --x64",
+    "dist:mac": "electron-vite build && electron-builder --mac",
+    "dist:linux": "electron-vite build && electron-builder --linux --x64"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.133.0",
+    "electron-updater": "^6.8.9",
     "node-pty": "1.1.0",
     "qrcode": "^1.5.4",
     "simple-git": "^4.0.2",
@@ -61,6 +65,7 @@
       "build/icon.png",
       "package.json"
     ],
+    "npmRebuild": false,
     "asarUnpack": [
       "node_modules/node-pty/**",
       "node_modules/uiohook-napi/**"
@@ -72,14 +77,61 @@
       "enableCookieEncryption": true,
       "onlyLoadAppFromAsar": true
     },
+    "publish": {
+      "provider": "github",
+      "owner": "Jhonnyxavier2729",
+      "repo": "xora"
+    },
     "win": {
       "target": [
         "nsis"
-      ]
+      ],
+      "artifactName": "Xora-Setup-${version}.${ext}"
     },
     "nsis": {
       "oneClick": false,
       "allowToChangeInstallationDirectory": true
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ],
+      "category": "public.app-category.developer-tools",
+      "icon": "build/icon.png",
+      "artifactName": "Xora-${version}-mac-${arch}.${ext}",
+      "hardenedRuntime": true,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "Xora usa el micrófono para hablar con Xen y dictar tareas."
+      }
+    },
+    "dmg": {
+      "title": "Xora ${version}"
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb"
+      ],
+      "category": "Development",
+      "icon": "build/icon.png",
+      "artifactName": "Xora-${version}-linux-${arch}.${ext}",
+      "maintainer": "Jhonnyxavier2729 <160868812+Jhonnyxavier2729@users.noreply.github.com>",
+      "synopsis": "Infinite canvas for AI coding agents"
     }
   }
 }

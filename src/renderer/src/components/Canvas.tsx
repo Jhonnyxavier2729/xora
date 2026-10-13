@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { AGENTS, type AgentId, type PanelType, type Viewport, type Workspace } from '@shared/types'
 import { PANEL_LABELS, useApp } from '../state'
-import { addPanelTo, ExtrasMenu } from './Chrome'
+import { addPanelTo } from './Chrome'
+import { ExtrasMenu } from './Extras'
 import { IconAgent, IconBrowser, IconEditor, IconFit, IconGit, IconList, IconNotes, IconTask, IconTerminal, PanelIcon } from './Icons'
 import { CanvasContextMenu, type CanvasActions } from './ContextMenu'
 import { PanelFrame } from './PanelFrame'
 
+/** Movimiento mínimo (px) para que un clic se convierta en recuadro o en desplazamiento. */
+const MARQUEE_THRESHOLD = 4
 const MIN_ZOOM = 0.1
 const MAX_ZOOM = 2
 const clampZoom = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z))
@@ -125,6 +128,9 @@ export function Canvas({ workspaceId }: { workspaceId: string }) {
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const closeMenu = useCallback(() => setMenu(null), [])
   const selected = useApp((s) => s.selected)
+  const dragGhost = useApp((s) => s.dragGhost)
+  const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(null)
+  const suppressMenu = useRef(false)
   const showMinimap = useApp((s) => s.settings?.showMinimap ?? true)
   const vp = ws.viewport
 
@@ -195,23 +201,85 @@ export function Canvas({ workspaceId }: { workspaceId: string }) {
     useApp.getState().reveal(null)
   }, [revealPanelId, ws.panels, size, setVp, workspaceId])
 
-  function onPointerDown(e: React.PointerEvent) {
-    const onBackground = (e.target as HTMLElement).classList.contains('canvas-bg')
-    if (onBackground && e.button === 0 && useApp.getState().selected.length) useApp.getState().setSelected([])
-    if (!(e.button === 1 || (e.button === 0 && (onBackground || spaceDown)))) return
-    e.preventDefault()
+  /** Convierte un punto de pantalla a coordenadas del mundo. */
+  const toWorld = (clientX: number, clientY: number) => {
+    const r = containerRef.current!.getBoundingClientRect()
+    const v = currentVp()
+    return { x: (clientX - r.left - v.x) / v.zoom, y: (clientY - r.top - v.y) / v.zoom }
+  }
+
+  /** Mover la vista: botón central, derecho o Espacio + arrastrar (como en Deska). */
+  function startPan(e: React.PointerEvent, fromRightButton: boolean) {
     const start = { x: e.clientX, y: e.clientY, vx: vp.x, vy: vp.y }
-    setPanning(true)
-    useApp.getState().setDragging(true)
-    const move = (ev: PointerEvent) => setVp({ ...currentVp(), x: start.vx + ev.clientX - start.x, y: start.vy + ev.clientY - start.y })
+    let moved = false
+    const move = (ev: PointerEvent) => {
+      if (!moved && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < MARQUEE_THRESHOLD) return
+      if (!moved) {
+        moved = true
+        setPanning(true)
+        useApp.getState().setDragging(true)
+        document.body.classList.add('canvas-interacting', 'is-panning')
+      }
+      setVp({ ...currentVp(), x: start.vx + ev.clientX - start.x, y: start.vy + ev.clientY - start.y })
+    }
     const up = () => {
+      // Un clic derecho sin arrastrar abre el menú; si hubo arrastre, se suprime.
+      if (fromRightButton && moved) suppressMenu.current = true
       setPanning(false)
       useApp.getState().setDragging(false)
+      document.body.classList.remove('canvas-interacting', 'is-panning')
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', up)
     }
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', up)
+  }
+
+  /** Selección por recuadro arrastrando el fondo con el botón izquierdo; Shift suma a la selección. */
+  function startMarquee(e: React.PointerEvent) {
+    const origin = toWorld(e.clientX, e.clientY)
+    const startClient = { x: e.clientX, y: e.clientY }
+    const additive = e.shiftKey
+    const before = additive ? useApp.getState().selected : []
+    let dragged = false
+    const move = (ev: PointerEvent) => {
+      if (!dragged && Math.hypot(ev.clientX - startClient.x, ev.clientY - startClient.y) < MARQUEE_THRESHOLD) return
+      dragged = true
+      document.body.classList.add('canvas-interacting')
+      const p = toWorld(ev.clientX, ev.clientY)
+      const rect = { x: Math.min(origin.x, p.x), y: Math.min(origin.y, p.y), w: Math.abs(p.x - origin.x), h: Math.abs(p.y - origin.y) }
+      setMarquee(rect)
+      const hit = useApp
+        .getState()
+        .workspaces.find((w) => w.id === workspaceId)!
+        .panels.filter((pn) => pn.x < rect.x + rect.w && pn.x + pn.w > rect.x && pn.y < rect.y + rect.h && pn.y + pn.h > rect.y)
+        .map((pn) => pn.id)
+      useApp.getState().setSelected([...new Set([...before, ...hit])])
+    }
+    const up = () => {
+      setMarquee(null)
+      document.body.classList.remove('canvas-interacting')
+      // Un clic en el fondo sin arrastrar limpia la selección.
+      if (!dragged && !additive) useApp.getState().setSelected([])
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
+  function onPointerDown(e: React.PointerEvent) {
+    const onBackground = (e.target as HTMLElement).classList.contains('canvas-bg')
+    // Botón central en cualquier sitio; derecho solo sobre el fondo (dentro de un panel es su propio menú).
+    if (e.button === 1 || (e.button === 2 && onBackground) || (e.button === 0 && spaceDown)) {
+      if (e.button !== 2) e.preventDefault()
+      startPan(e, e.button === 2)
+      return
+    }
+    if (e.button === 0 && onBackground) {
+      e.preventDefault()
+      startMarquee(e)
+    }
   }
 
   function zoomBy(factor: number) {
@@ -335,6 +403,11 @@ export function Canvas({ workspaceId }: { workspaceId: string }) {
         onContextMenu={(e) => {
           if (!(e.target as HTMLElement).classList.contains('canvas-bg')) return
           e.preventDefault()
+          // Si el botón derecho se usó para mover la vista, no se abre el menú.
+          if (suppressMenu.current) {
+            suppressMenu.current = false
+            return
+          }
           setMenu({ x: e.clientX, y: e.clientY })
         }}
       >
@@ -357,6 +430,17 @@ export function Canvas({ workspaceId }: { workspaceId: string }) {
                 onToggleMax={() => setMaximized((m) => (m === p.id ? null : p.id))}
               />
             ))}
+            {/* Fantasmas de arrastre: cristal desenfocado con el título y «Suelta para colocar». */}
+            {dragGhost &&
+              ws.panels
+                .filter((p) => dragGhost.ids.includes(p.id))
+                .map((p) => (
+                  <div key={p.id} className="drag-ghost" style={{ left: p.x + dragGhost.dx, top: p.y + dragGhost.dy, width: p.w, height: p.h }}>
+                    <div className="drag-ghost-head">{p.title}</div>
+                    <div className="drag-ghost-body">Suelta para colocar</div>
+                  </div>
+                ))}
+            {marquee && <div className="marquee" style={{ left: marquee.x, top: marquee.y, width: marquee.w, height: marquee.h, borderWidth: 1 / vp.zoom }} />}
           </div>
         </div>
         {ws.panels.length === 0 && (
@@ -364,7 +448,9 @@ export function Canvas({ workspaceId }: { workspaceId: string }) {
             <div className="glass hint-card">
               <strong>Lienzo vacío</strong>
               <p>Añade un agente o una terminal desde «Añadir panel» o la barra de herramientas.</p>
-              <p className="muted">Arrastra el fondo para moverte · Ctrl + rueda para hacer zoom · doble clic en una cabecera para maximizar</p>
+              <p className="muted">
+                Botón derecho o central (o Espacio) + arrastrar para moverte · arrastra el fondo para seleccionar · Ctrl + rueda para hacer zoom
+              </p>
             </div>
           </div>
         )}

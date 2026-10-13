@@ -17,7 +17,9 @@ import type {
   EnsurePtyOptions,
   FileEntry,
   GitStatus,
+  NoteSummary,
   PtyInfo,
+  UsageReport,
   RemoteState,
   SecretName,
   SecretStatus,
@@ -97,7 +99,8 @@ const api = {
   notes: {
     read: (wsId: string, panelId: string): Promise<string> => ipcRenderer.invoke('notes:read', wsId, panelId),
     write: (wsId: string, panelId: string, content: string): Promise<void> =>
-      ipcRenderer.invoke('notes:write', wsId, panelId, content)
+      ipcRenderer.invoke('notes:write', wsId, panelId, content),
+    summaries: (refs: { wsId: string; panelId: string }[]): Promise<NoteSummary[]> => ipcRenderer.invoke('notes:summaries', refs)
   },
   git: {
     status: (cwd: string): Promise<GitStatus> => ipcRenderer.invoke('git:status', cwd),
@@ -128,6 +131,9 @@ const api = {
     toggle: (mode: 'xen' | 'dictate' = 'xen') => ipcRenderer.send('voice:toggle', mode),
     onDictation: (fn: (text: string) => void) => on('voice:dictation', fn),
     stop: (cancel?: boolean) => ipcRenderer.send('voice:stop', cancel),
+    setTextFocus: (focused: boolean) => ipcRenderer.send('voice:textFocus', focused),
+    /** Audio de voz natural para un texto, o null si se usa la voz del sistema. */
+    tts: (text: string, voice?: string): Promise<{ audio: ArrayBuffer; mime: string } | null> => ipcRenderer.invoke('voice:tts', text, voice),
     sendAudio: (audio: ArrayBuffer, mime: string) => ipcRenderer.send('voice:audio', audio, mime),
     pillError: (message: string) => ipcRenderer.send('voice:pillError', message),
     dismiss: () => ipcRenderer.send('voice:dismiss'),
@@ -152,8 +158,13 @@ const api = {
     tunnel: (on: boolean): Promise<RemoteState> => ipcRenderer.invoke('remote:tunnel', on),
     onChanged: (fn: (s: RemoteState) => void) => on('remote:changed', fn)
   },
+  usage: {
+    report: (force?: boolean): Promise<UsageReport> => ipcRenderer.invoke('usage:report', force)
+  },
   app: {
+    platform: process.platform,
     onWarning: (fn: (message: string) => void) => on('app:warning', fn),
+    onNotice: (fn: (message: string) => void) => on('app:notice', fn),
     info: (): Promise<AppInfo> => ipcRenderer.invoke('app:info')
   }
 }

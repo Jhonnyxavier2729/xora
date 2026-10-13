@@ -16,7 +16,9 @@ import {
 import { accountStatuses, LOGIN_COMMANDS } from './accounts'
 import { agentVersions, detectAgents, hasCloudflared } from './agents'
 import { taskModels, tasks } from './tasks'
-import { resolveCanvasRequest, resolveConfirm } from './canvas'
+import { getCanvasWindow, resolveCanvasRequest, resolveConfirm } from './canvas'
+import { synthesize } from './tts'
+import { usageReport } from './usage'
 import {
   blankCanvasFolder,
   cloneRepo,
@@ -28,7 +30,7 @@ import {
   recentProjects
 } from './workspaces'
 import { askXen, providerStatuses, resetXen } from './xen'
-import { assertAllowed, listDir, readFile, readNote, writeFile, writeNote } from './files'
+import { assertAllowed, listDir, noteSummaries, readFile, readNote, writeFile, writeNote } from './files'
 import * as git from './git'
 import { ptys } from './pty'
 import {
@@ -51,6 +53,7 @@ import {
   handleUtterance,
   setHoldKey,
   setPillState,
+  setTextFieldFocused,
   stopRecording,
   toggleRecording,
   type VoiceMode
@@ -132,6 +135,7 @@ export function registerIpc(): void {
   ipcMain.handle('fs:read', (_e, path: string) => readFile(path))
   ipcMain.handle('fs:write', (_e, path: string, content: string) => writeFile(path, content))
   ipcMain.handle('notes:read', (_e, wsId: string, panelId: string) => readNote(wsId, panelId))
+  ipcMain.handle('notes:summaries', (_e, refs: { wsId: string; panelId: string }[]) => noteSummaries(Array.isArray(refs) ? refs.slice(0, 200) : []))
   ipcMain.handle('notes:write', (_e, wsId: string, panelId: string, content: string) => writeNote(wsId, panelId, content))
 
   // --- Git ---------------------------------------------------------------------
@@ -176,6 +180,11 @@ export function registerIpc(): void {
   // --- Voz y Xen ---------------------------------------------------------------
   ipcMain.on('voice:toggle', (_e, mode?: VoiceMode) => toggleRecording(mode === 'dictate' ? 'dictate' : 'xen'))
   ipcMain.on('voice:stop', (_e, cancel?: boolean) => stopRecording(!!cancel))
+  ipcMain.handle('usage:report', (_e, force?: boolean) => usageReport(force === true))
+  ipcMain.handle('voice:tts', (_e, text: string, voice?: string) => synthesize(String(text ?? ''), typeof voice === 'string' ? voice : undefined))
+  ipcMain.on('voice:textFocus', (e, focused: boolean) => {
+    if (e.sender === getCanvasWindow()?.webContents) setTextFieldFocused(focused === true)
+  })
   ipcMain.on('voice:audio', async (_e, audio: ArrayBuffer, mime: string) => {
     try {
       if (currentVoiceMode() === 'dictate') await handleDictation(Buffer.from(audio), mime, setPillState)

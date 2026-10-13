@@ -1,0 +1,227 @@
+/* Estados de los paneles al arrastrar y seleccionar: sombras en capas, anillo y resplandor de acento,
+   contorno de actividad, fantasma de arrastre y recuadro de selección. */
+
+:root {
+  --hairline: rgba(255, 255, 255, 0.07);
+  --hairline-strong: rgba(255, 255, 255, 0.14);
+  --accent-overlay-1: color-mix(in srgb, var(--accent) 10%, transparent);
+  --accent-overlay-2: color-mix(in srgb, var(--accent) 25%, transparent);
+  --accent-overlay-3: color-mix(in srgb, var(--accent) 40%, transparent);
+  --wait: #e5a01a;
+
+  --shadow-panel:
+    inset 0 0 0 1px var(--hairline),
+    0 1px 2px rgba(0, 0, 0, 0.25),
+    0 8px 24px rgba(0, 0, 0, 0.3),
+    0 24px 56px rgba(0, 0, 0, 0.4);
+  --shadow-panel-hover:
+    inset 0 0 0 1px var(--hairline-strong),
+    0 2px 4px rgba(0, 0, 0, 0.3),
+    0 12px 32px rgba(0, 0, 0, 0.35),
+    0 32px 72px rgba(0, 0, 0, 0.45);
+  --shadow-panel-focus:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent),
+    0 0 0 1px var(--accent-overlay-2),
+    0 4px 12px rgba(0, 0, 0, 0.35),
+    0 16px 40px rgba(0, 0, 0, 0.5),
+    0 32px 64px rgba(0, 0, 0, 0.45);
+}
+
+:root[data-mode='light'] {
+  --hairline: rgba(0, 0, 0, 0.08);
+  --hairline-strong: rgba(0, 0, 0, 0.16);
+}
+
+/* Panel en reposo, hover y enfocado */
+
+.panel {
+  border: 0;
+  border-radius: 12px;
+  box-shadow: var(--shadow-panel);
+  transition:
+    box-shadow 0.18s ease-out,
+    outline-color 0.2s ease,
+    transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+  animation: panel-enter 0.26s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes panel-enter {
+  from {
+    transform: scale(0.85);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: var(--panel-opacity, 1);
+  }
+}
+
+.panel:hover {
+  box-shadow: var(--shadow-panel-hover);
+}
+
+.panel.focused,
+.panel.selected,
+.panel.focused:hover,
+.panel.selected:hover {
+  border-color: transparent;
+  box-shadow: var(--shadow-panel-focus);
+}
+
+/* La selección múltiple ya no usa el contorno grueso: anillo de acento + resplandor. */
+.panel.selected {
+  outline: none;
+}
+
+/* Resplandor radial del acento, detrás de todos los paneles y sobresaliendo 24 px. */
+.panel-glow {
+  position: absolute;
+  z-index: 0;
+  border-radius: 28px;
+  pointer-events: none;
+  background: radial-gradient(ellipse at center, var(--accent-overlay-2) 0%, var(--accent-overlay-1) 35%, transparent 65%);
+  animation: glow-in 0.2s ease-out;
+}
+
+@keyframes glow-in {
+  from {
+    opacity: 0;
+    transform: scale(0.9);
+  }
+}
+
+/* Contorno de actividad: el agente te espera (ámbar que late) o pide aprobación. */
+
+.panel.status-waiting,
+.panel.status-approval {
+  outline: 2px solid var(--wait);
+  outline-offset: -1px;
+  animation:
+    panel-enter 0.26s cubic-bezier(0.34, 1.56, 0.64, 1),
+    pulse-activity 1s ease-in-out infinite alternate;
+  box-shadow: var(--shadow-panel), 0 0 24px color-mix(in srgb, var(--wait) 25%, transparent);
+}
+
+.panel.status-approval {
+  --wait: #ff6b6b;
+}
+
+.panel.status-waiting.focused,
+.panel.status-approval.focused {
+  box-shadow: var(--shadow-panel-focus), 0 0 24px color-mix(in srgb, var(--wait) 25%, transparent);
+}
+
+@keyframes pulse-activity {
+  from {
+    outline-color: color-mix(in srgb, var(--wait) 40%, transparent);
+  }
+  to {
+    outline-color: var(--wait);
+  }
+}
+
+.panel.status-working {
+  outline: none;
+}
+
+/* Cursor de agarre durante cualquier interacción con el lienzo */
+
+body.canvas-interacting,
+body.canvas-interacting * {
+  user-select: none !important;
+}
+
+body.is-moving,
+body.is-moving *,
+body.is-panning,
+body.is-panning * {
+  cursor: grabbing !important;
+}
+
+body.is-resizing,
+body.is-resizing * {
+  cursor: nwse-resize !important;
+}
+
+/* Durante la interacción, ningún contenido incrustado roba el ratón */
+body.canvas-interacting .panel-body {
+  pointer-events: none;
+}
+
+/* Arrastre: el panel real se oculta (sigue vivo) y lo sigue un fantasma de cristal */
+
+.panel.is-drag-source {
+  opacity: 0 !important;
+  pointer-events: none;
+  animation: none;
+}
+
+.drag-ghost {
+  position: absolute;
+  z-index: 99998;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  pointer-events: none;
+  border-radius: 8px;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  backdrop-filter: blur(10px) saturate(0.9);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.drag-ghost-head {
+  flex: none;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  background: var(--panel-2);
+  border-bottom: 1px solid var(--border);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.drag-ghost-body {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  color: color-mix(in srgb, var(--accent) 85%, transparent);
+  font-size: 12px;
+  font-weight: 500;
+  user-select: none;
+}
+
+/* Recuadro de selección */
+
+.marquee {
+  position: absolute;
+  z-index: 99999;
+  pointer-events: none;
+  background: rgba(74, 158, 255, 0.1);
+  border: 1px solid rgba(74, 158, 255, 0.5);
+  border-radius: 2px;
+}
+
+/* La cabecera se arrastra con la mano */
+
+.panel-header {
+  cursor: grab;
+}
+
+.panel-header:active {
+  cursor: grabbing;
+}
+
+/* Las notas de color conservan su tono también enfocadas */
+.panel-notes:not(.note-dark).focused {
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--accent) 50%, transparent),
+    0 0 0 1px var(--accent-overlay-2),
+    0 16px 40px rgba(0, 0, 0, 0.45);
+}

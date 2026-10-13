@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   AGENTS,
   AUTONOMY_FLAGS,
+  OPENAI_TTS_VOICES,
   SECRET_NAMES,
   type AccountStatus,
   type TaskModels,
@@ -20,6 +21,7 @@ import {
 } from '@shared/types'
 import { useApp } from '../state'
 import { errMsg, timeAgo } from '../utils'
+import { speak, systemVoices } from '../speech'
 import { LookContent } from './Chrome'
 import {
   IconAgent,
@@ -99,17 +101,101 @@ function ProviderBadge({ id }: { id: XenProviderId }) {
   return <span className="provider-icon">{agent ? <ProviderIcon id={agent} size={18} /> : '⚡'}</span>
 }
 
+const IS_MAC = window.api.app.platform === 'darwin'
+
 const HOLD_KEYS = [
-  ['CtrlRight', 'Ctrl derecho'],
-  ['AltRight', 'Alt derecho / AltGr'],
+  ...(IS_MAC ? [] : [['CtrlRight', 'Ctrl derecho']]),
+  ['AltRight', IS_MAC ? 'Opción derecha' : 'Alt derecho / AltGr'],
   ['ShiftRight', 'Shift derecho'],
-  ['MetaRight', 'Windows derecho'],
+  ['MetaRight', IS_MAC ? 'Comando derecho' : 'Windows derecho'],
   ['F8', 'F8'],
   ['F9', 'F9'],
   ['F10', 'F10'],
   ['ScrollLock', 'Bloq Despl'],
   ['Pause', 'Pausa']
 ] as const
+
+const SAMPLE_PHRASE = 'Hola, soy Xen. Abro una terminal nueva y le paso la tarea a Claude Code.'
+
+/** Voz de Xen: motor (sistema u OpenAI), voz concreta, velocidad y prueba. */
+function VoiceOfXen() {
+  const [settings, update] = useSettings()
+  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([])
+  const [hasOpenAi, setHasOpenAi] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => {
+    void systemVoices().then(setVoices)
+    void window.api.secrets.status().then((s) => setHasOpenAi(!!s.openai))
+  }, [])
+  if (!settings) return null
+  const lang = (settings.language || 'es').toLowerCase()
+  // Primero las voces en tu idioma.
+  const sorted = [...voices].sort((a, b) => Number(b.lang.toLowerCase().startsWith(lang)) - Number(a.lang.toLowerCase().startsWith(lang)))
+
+  async function test() {
+    if (!settings) return
+    setTesting(true)
+    setError(null)
+    setError(await speak(SAMPLE_PHRASE, settings))
+    setTesting(false)
+  }
+
+  return (
+    <Group title="Voz de Xen">
+      <Row
+        title="Motor de voz"
+        desc={
+          settings.ttsProvider === 'openai'
+            ? hasOpenAi
+              ? 'Voz natural de OpenAI. Cuesta céntimos al mes con un uso normal.'
+              : 'Necesita tu clave de OpenAI en «Claves API». Sin ella, Xen usa la voz del sistema.'
+            : 'La voz del sistema es gratis pero suena robótica.'
+        }
+      >
+        <select value={settings.ttsProvider} onChange={(e) => void update({ ttsProvider: e.target.value as Settings['ttsProvider'] })}>
+          <option value="openai">Natural · OpenAI</option>
+          <option value="system">Sistema · gratis</option>
+        </select>
+      </Row>
+      <Row title="Voz">
+        {settings.ttsProvider === 'openai' ? (
+          <select value={settings.ttsVoice} onChange={(e) => void update({ ttsVoice: e.target.value })}>
+            {OPENAI_TTS_VOICES.map((v) => (
+              <option key={v.id} value={v.id}>
+                {v.label}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <select value={settings.systemVoice} onChange={(e) => void update({ systemVoice: e.target.value })}>
+            <option value="">Automática</option>
+            {sorted.map((v) => (
+              <option key={v.name} value={v.name}>
+                {v.name.replace(/^Microsoft /, '').replace(/ - .*$/, '')} · {v.lang}
+              </option>
+            ))}
+          </select>
+        )}
+      </Row>
+      <Row title="Velocidad" desc={`${settings.speechRate.toFixed(2).replace(/0$/, '')}×`}>
+        <input
+          type="range"
+          min={0.7}
+          max={1.5}
+          step={0.05}
+          value={settings.speechRate}
+          onChange={(e) => void update({ speechRate: Number(e.target.value) })}
+        />
+      </Row>
+      <Row title="Probar la voz" desc={error ?? 'Escucha cómo suena con estos ajustes.'}>
+        <button className="btn" disabled={testing} onClick={() => void test()}>
+          {testing ? 'Cargando…' : '▶ Escuchar'}
+        </button>
+      </Row>
+    </Group>
+  )
+}
 
 function XenSection() {
   const [settings, update] = useSettings()
@@ -255,6 +341,8 @@ function XenSection() {
           <Toggle on={settings.speakReplies} onChange={(v) => void update({ speakReplies: v })} />
         </Row>
       </Group>
+
+      <VoiceOfXen />
     </>
   )
 }

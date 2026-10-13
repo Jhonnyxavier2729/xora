@@ -3,6 +3,7 @@ import { AGENTS, type AgentId, type PanelType, type Workspace } from '@shared/ty
 import { ACCENTS, THEMES, WALLPAPERS, wallpaperUrl } from '../appearance'
 import { findPanel, PANEL_LABELS, useApp } from '../state'
 import { XoraMark } from './Logo'
+import { UsageChip } from './Usage'
 import { XenFace, type XenMood } from './XenFace'
 import { errMsg, timeAgo } from '../utils'
 import {
@@ -405,7 +406,11 @@ function XenAsk() {
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [reply, setReply] = useState<string | null>(null)
-  const holdLabel = { CtrlRight: 'Ctrl der.', AltRight: 'Alt der.', ShiftRight: 'Shift der.', MetaRight: 'Win der.' }[settings?.holdKey ?? ''] ?? settings?.holdKey
+  const mac = window.api.app.platform === 'darwin'
+  const holdLabel =
+    { CtrlRight: 'Ctrl der.', AltRight: mac ? 'Opción der.' : 'Alt der.', ShiftRight: 'Shift der.', MetaRight: mac ? 'Cmd der.' : 'Win der.' }[
+      settings?.holdKey ?? ''
+    ] ?? settings?.holdKey
 
   async function submit() {
     const q = text.trim()
@@ -582,7 +587,10 @@ export function BottomDock({ wsId }: { wsId: string | null }) {
           {inbox && <InboxList align="up" onPick={() => setInbox(false)} />}
         </div>
       </div>
-      <DockSliders />
+      <div className="dock-under">
+        <DockSliders />
+        <UsageChip />
+      </div>
     </div>
   )
 }
@@ -703,41 +711,5 @@ export function LookPopover() {
 
 // ---------------------------------------------------------------------------
 // Extras
-
-export function ExtrasMenu() {
-  const [open, setOpen] = useState(false)
-  const ref = useOutside<HTMLDivElement>(open, () => setOpen(false))
-
-  return (
-    <div className="extras menu-anchor" ref={ref}>
-      <button className="glass pill dock-btn" onClick={() => setOpen(!open)}>
-        ⋯ Extras {open ? '▾' : '▴'}
-      </button>
-      {open && (
-        <div className="menu menu-up extras-menu">
-          <button
-            className="menu-item"
-            onClick={(e) => {
-              setOpen(false)
-              const r = (e.currentTarget as HTMLElement).getBoundingClientRect()
-              useApp.getState().openLook({ x: r.left, y: r.top - 430 })
-            }}
-          >
-            🎨 Cambiar aspecto…
-          </button>
-          <button className="menu-item" onClick={() => useApp.getState().openSettings('voice')}>
-            🎙 Voz y Xen…
-          </button>
-          <button className="menu-item" onClick={() => useApp.getState().openSettings('keys')}>
-            🔑 Claves API…
-          </button>
-          <button className="menu-item" onClick={() => useApp.getState().openSettings('remote')}>
-            📱 Acceso móvil…
-          </button>
-        </div>
-      )}
-    </div>
-  )
-}
 
 export { PanelIcon }

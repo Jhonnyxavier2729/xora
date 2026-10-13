@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react'
 import type { Plugin } from 'vite'
 
 const DESKTOP_CSP =
-  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http: ac-asset:; font-src 'self' data:; worker-src 'self' blob:; media-src 'self' blob:; connect-src 'self'"
+  "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https: http: ac-asset:; font-src 'self' data:; worker-src 'self' blob:; media-src 'self' blob:; connect-src 'self'; frame-src https://w.soundcloud.com"
 const REMOTE_CSP =
   "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' data:; media-src 'self' blob:; connect-src 'self' ws: wss:"
 

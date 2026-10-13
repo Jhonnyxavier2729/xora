@@ -1,0 +1,50 @@
+# Genera los instaladores de Windows, macOS y Linux y los sube a un borrador de GitHub Release.
+# Se lanza al subir una etiqueta de versión:  git tag v0.2.0 && git push origin v0.2.0
+# (la versión de package.json debe coincidir con la etiqueta).
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: --win --x64
+          - os: macos-latest
+            # Firma "ad hoc": sin ella, los Mac con Apple Silicon no abren la app.
+            target: --mac -c.mac.identity=-
+          - os: ubuntu-latest
+            target: --linux --x64
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # node-pty no trae binario precompilado para Linux: se compila aquí.
+      - name: Linux build tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y build-essential python3
+
+      - run: npm ci
+
+      - run: npm run typecheck
+
+      - run: npx electron-vite build
+
+      - name: Package and publish
+        run: npx electron-builder ${{ matrix.target }} --publish always
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
