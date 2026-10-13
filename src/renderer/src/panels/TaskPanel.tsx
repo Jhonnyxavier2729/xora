@@ -1,0 +1,550 @@
+import { useEffect, useMemo, useRef, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import type { Panel, TaskAccess, TaskConfig, TaskItem, TaskModels, TaskProvider } from '@shared/types'
+import { IconMic } from '../components/Icons'
+import { useApp } from '../state'
+import { errMsg } from '../utils'
+
+// ---------------------------------------------------------------------------
+// Iconos de proveedor (genéricos, propios)
+
+export function ProviderIcon({ id, size = 15 }: { id: TaskProvider; size?: number }) {
+  if (id === 'claude')
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true">
+        {[0, 30, 60, 90, 120, 150].map((a) => (
+          <rect key={a} x="11" y="2.5" width="2" height="19" rx="1" fill="#e8825f" transform={`rotate(${a} 12 12)`} />
+        ))}
+      </svg>
+    )
+  if (id === 'codex')
+    return (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+        <path d="M12 2.5 20.5 7.3v9.4L12 21.5 3.5 16.7V7.3z" />
+        <path d="M12 7.5 16 9.8v4.4L12 16.5 8 14.2V9.8z" />
+      </svg>
+    )
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
+      <path d="M12 3 20 7.5v9L12 21l-8-4.5v-9z" />
+      <path d="M4 7.5 12 12l8-4.5M12 12v9" />
+    </svg>
+  )
+}
+
+const PROVIDERS: { id: TaskProvider; name: string }[] = [
+  { id: 'claude', name: 'Claude Code' },
+  { id: 'codex', name: 'Codex' },
+  { id: 'opencode', name: 'OpenCode' }
+]
+
+const ACCESS: { id: TaskAccess; label: string; detail: string }[] = [
+  { id: 'approval-required', label: 'Supervisado', detail: 'Apruebas comandos y ediciones' },
+  { id: 'auto-accept-edits', label: 'Aceptar ediciones', detail: 'Las ediciones entran, los comandos preguntan' },
+  { id: 'auto', label: 'Auto', detail: 'El agente decide y revisas al final' },
+  { id: 'full-access', label: 'Acceso total', detail: 'Nada se detiene para aprobación' }
+]
+
+const SLASH: Record<TaskProvider, [string, string][]> = {
+  claude: [
+    ['/review', 'Revisar los cambios actuales'],
+    ['/init', 'Crear CLAUDE.md con el contexto del proyecto'],
+    ['/compact', 'Compactar la conversación'],
+    ['/security-review', 'Revisión de seguridad de los cambios']
+  ],
+  codex: [['/review', 'Revisar los cambios actuales']],
+  opencode: [['/init', 'Crear AGENTS.md con el contexto del proyecto']]
+}
+
+let modelsCache: Promise<TaskModels> | null = null
+const loadModels = (force = false) => {
+  if (!modelsCache || force) modelsCache = window.api.task.models(force)
+  return modelsCache
+}
+
+function useOutside<T extends HTMLElement>(open: boolean, close: () => void) {
+  const ref = useRef<T>(null)
+  useEffect(() => {
+    if (!open) return
+    const down = (e: PointerEvent) => ref.current && !ref.current.contains(e.target as Node) && close()
+    window.addEventListener('pointerdown', down, true)
+    return () => window.removeEventListener('pointerdown', down, true)
+  }, [open, close])
+  return ref
+}
+
+// ---------------------------------------------------------------------------
+// Selector de modelo
+
+function ModelPicker({ config, onChange }: { config: TaskConfig; onChange: (c: TaskConfig) => void }) {
+  const [open, setOpen] = useState(false)
+  const [models, setModels] = useState<TaskModels | null>(null)
+  const [tab, setTab] = useState<TaskProvider>(config.provider)
+  const [query, setQuery] = useState('')
+  const ref = useOutside<HTMLDivElement>(open, () => setOpen(false))
+
+  useEffect(() => {
+    void loadModels().then(setModels)
+  }, [])
+  useEffect(() => setTab(config.provider), [config.provider, open])
+
+  const list = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return (models?.[tab] ?? []).filter((m) => !q || m.label.toLowerCase().includes(q) || m.id.toLowerCase().includes(q))
+  }, [models, tab, query])
+
+  const pick = (id: string) => {
+    onChange({ ...config, provider: tab, model: id })
+    setOpen(false)
+  }
+
+  useEffect(() => {
+    if (!open) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.altKey && /^Digit[1-9]$/.test(e.code)) {
+        const m = list[Number(e.code.slice(5)) - 1]
+        if (m) {
+          e.preventDefault()
+          pick(m.id)
+        }
+      }
+      if (e.key === 'Escape') setOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
+
+  const current = models?.[config.provider]?.find((m) => m.id === config.model)
+  const label = current?.label ?? (config.model || 'Predeterminado')
+
+  return (
+    <div className="menu-anchor" ref={ref}>
+      <button className="tk-chip" onClick={() => setOpen(!open)} title="Agente y modelo">
+        <ProviderIcon id={config.provider} />
+        {label} ▾
+      </button>
+      {open && (
+        <div className="model-picker glass">
+          <div className="mp-tabs">
+            {PROVIDERS.map((p) => (
+              <button key={p.id} className={`mp-tab ${tab === p.id ? 'on' : ''}`} title={p.name} onClick={() => setTab(p.id)}>
+                <ProviderIcon id={p.id} size={18} />
+              </button>
+            ))}
+          </div>
+          <div className="mp-main">
+            <input autoFocus className="mp-search" placeholder="Buscar modelos" value={query} onChange={(e) => setQuery(e.target.value)} />
+            <div className="mp-title">{PROVIDERS.find((p) => p.id === tab)?.name}</div>
+            <div className="mp-list">
+              {models === null && <div className="muted mp-empty">Cargando modelos…</div>}
+              {models && list.length === 0 && (
+                <div className="muted mp-empty">{models[tab].length ? 'Nada coincide.' : 'Este agente no está instalado o no respondió.'}</div>
+              )}
+              {list.map((m, i) => (
+                <button
+                  key={m.id || 'default'}
+                  className={`mp-item ${config.provider === tab && config.model === m.id ? 'on' : ''}`}
+                  onClick={() => pick(m.id)}
+                >
+                  <span className="grow">{m.label}</span>
+                  {m.id && m.id !== m.label && <span className="muted small mp-id">{m.id}</span>}
+                  {i < 9 && (
+                    <span className="kbds">
+                      <kbd>Alt</kbd>
+                      <kbd>{i + 1}</kbd>
+                    </span>
+                  )}
+                </button>
+              ))}
+            </div>
+            <div className="mp-foot">
+              <button
+                className="link-plain"
+                onClick={() => {
+                  setOpen(false)
+                  useApp.getState().openSettings('agents')
+                }}
+              >
+                Gestionar agentes
+              </button>
+              <button className="link-plain muted" onClick={() => void loadModels(true).then(setModels)}>
+                ↻
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AccessPicker({ config, onChange }: { config: TaskConfig; onChange: (c: TaskConfig) => void }) {
+  const [open, setOpen] = useState(false)
+  const ref = useOutside<HTMLDivElement>(open, () => setOpen(false))
+  const current = ACCESS.find((a) => a.id === config.access) ?? ACCESS[3]
+  return (
+    <div className="menu-anchor" ref={ref}>
+      <button className="tk-chip plain" onClick={() => setOpen(!open)} title="Qué puede hacer el agente sin preguntarte">
+        ⋯ {current.label} ▾
+      </button>
+      {open && (
+        <div className="menu menu-up tk-access">
+          {ACCESS.map((a) => (
+            <button
+              key={a.id}
+              className={`menu-item ${a.id === config.access ? 'on' : ''}`}
+              onClick={() => {
+                onChange({ ...config, access: a.id })
+                setOpen(false)
+              }}
+            >
+              <span className="grow">
+                <strong>{a.label}</strong>
+                <span className="muted small"> · {a.detail}</span>
+              </span>
+              {a.id === config.access && '✓'}
+            </button>
+          ))}
+          {config.provider !== 'claude' && (
+            <div className="menu-empty small">
+              {config.provider === 'codex' ? 'Codex aplica el acceso como permisos del sandbox.' : 'OpenCode usa los permisos de su configuración.'}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Compositor
+
+function Composer({
+  config,
+  onConfig,
+  running,
+  cwd,
+  onSend,
+  onStop,
+  big
+}: {
+  config: TaskConfig
+  onConfig: (c: TaskConfig) => void
+  running: boolean
+  cwd: string
+  onSend: (text: string, files: string[]) => void
+  onStop: () => void
+  big: boolean
+}) {
+  const [text, setText] = useState('')
+  const [files, setFiles] = useState<string[]>([])
+  const [slash, setSlash] = useState(false)
+  const ref = useRef<HTMLTextAreaElement>(null)
+  const slashRef = useOutside<HTMLDivElement>(slash, () => setSlash(false))
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = Math.min(220, el.scrollHeight) + 'px'
+  }, [text])
+
+  const submit = () => {
+    const t = text.trim()
+    if (!t || (running && config.provider !== 'claude')) return
+    onSend(t, files)
+    setText('')
+    setFiles([])
+  }
+
+  return (
+    <div className={`composer ${big ? 'big' : ''}`}>
+      {files.length > 0 && (
+        <div className="tk-files">
+          {files.map((f) => (
+            <span key={f} className="tk-file" title={f}>
+              📄 {f.split(/[\\/]/).pop()}
+              <button onClick={() => setFiles(files.filter((x) => x !== f))}>×</button>
+            </span>
+          ))}
+        </div>
+      )}
+      <textarea
+        ref={ref}
+        rows={big ? 3 : 1}
+        value={text}
+        placeholder={running ? 'Escribe para añadir instrucciones…' : 'Describe la tarea. Enter para empezar, Shift+Enter para una línea nueva.'}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault()
+            submit()
+          }
+        }}
+      />
+      <div className="tk-bar">
+        <button
+          className="tk-icon"
+          title="Adjuntar archivos"
+          onClick={async () => {
+            const picked = await window.api.task.pickFiles(cwd)
+            if (picked.length) setFiles([...new Set([...files, ...picked])])
+          }}
+        >
+          📎
+        </button>
+        <ModelPicker config={config} onChange={onConfig} />
+        <button
+          className={`tk-chip plain ${config.mode === 'plan' ? 'on' : ''}`}
+          title="Build: el agente hace cambios · Plan: solo propone un plan"
+          onClick={() => onConfig({ ...config, mode: config.mode === 'plan' ? 'build' : 'plan' })}
+        >
+          {config.mode === 'plan' ? 'Plan' : 'Build'}
+        </button>
+        <AccessPicker config={config} onChange={onConfig} />
+        <span className="grow" />
+        <div className="menu-anchor" ref={slashRef}>
+          <button className="tk-icon mono" title="Comandos" onClick={() => setSlash(!slash)}>
+            /
+          </button>
+          {slash && (
+            <div className="menu menu-up menu-right tk-slash">
+              {SLASH[config.provider].map(([cmd, desc]) => (
+                <button
+                  key={cmd}
+                  className="menu-item"
+                  onClick={() => {
+                    setText(cmd + (text ? ' ' + text : ' '))
+                    setSlash(false)
+                    ref.current?.focus()
+                  }}
+                >
+                  <code>{cmd}</code>
+                  <span className="muted small grow">{desc}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <button
+          className="tk-icon"
+          title="Dictar en este cuadro"
+          // Sin robar el foco: el texto dictado se escribe donde está el cursor.
+          onMouseDown={(e) => {
+            e.preventDefault()
+            ref.current?.focus()
+          }}
+          onClick={() => window.api.voice.toggle('dictate')}
+        >
+          <IconMic size={15} />
+        </button>
+        {running && config.provider !== 'claude' ? (
+          <button className="tk-start stop" onClick={onStop}>
+            ■ Detener
+          </button>
+        ) : (
+          <>
+            {running && (
+              <button className="tk-icon" title="Detener" onClick={onStop}>
+                ■
+              </button>
+            )}
+            <button className="tk-start" disabled={!text.trim()} onClick={submit}>
+              {running ? 'Enviar' : 'Empezar'} ↵
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Conversación
+
+function ToolRow({ item }: { item: Extract<TaskItem, { kind: 'tool' }> }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className={`tk-tool ${item.status}`}>
+      <button className="tk-tool-head" onClick={() => item.output && setOpen(!open)}>
+        <span className="tk-tool-state">{item.status === 'running' ? <span className="spinner" /> : item.status === 'error' ? '✗' : '✓'}</span>
+        <span className="tk-tool-name">{item.name}</span>
+        <span className="tk-tool-title" title={item.title}>
+          {item.title}
+        </span>
+        {item.output && <span className="muted small">{open ? '▴' : '▾'}</span>}
+      </button>
+      {open && item.output && <pre className="tk-tool-out">{item.output}</pre>}
+    </div>
+  )
+}
+
+function Item({ item, panelId }: { item: TaskItem; panelId: string }) {
+  switch (item.kind) {
+    case 'user':
+      return (
+        <div className="tk-user">
+          <div className="tk-bubble">{item.text}</div>
+          {item.files?.map((f) => (
+            <span key={f} className="tk-file">
+              📄 {f.split(/[\\/]/).pop()}
+            </span>
+          ))}
+        </div>
+      )
+    case 'text':
+      return (
+        <div className={`tk-text markdown ${item.streaming ? 'streaming' : ''}`}>
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.text}</ReactMarkdown>
+        </div>
+      )
+    case 'tool':
+      return <ToolRow item={item} />
+    case 'approval':
+      return (
+        <div className={`tk-approval ${item.state}`}>
+          <div className="tk-approval-head">
+            <strong>{item.state === 'pending' ? '¿Permitir?' : item.state === 'allowed' ? 'Permitido' : 'Denegado'}</strong>
+            <span className="tk-tool-title">{item.title}</span>
+          </div>
+          <pre className="tk-tool-out">{item.detail}</pre>
+          {item.state === 'pending' && (
+            <div className="row">
+              <button className="btn small" onClick={() => void window.api.task.approve(panelId, item.id, false)}>
+                Denegar
+              </button>
+              <button className="btn small primary" onClick={() => void window.api.task.approve(panelId, item.id, true)}>
+                Permitir
+              </button>
+            </div>
+          )}
+        </div>
+      )
+    case 'result':
+      return (
+        <div className={`tk-result ${item.ok ? 'ok' : 'bad'}`}>
+          {item.ok ? '✓ Hecho' : `✗ ${item.text}`}
+          {item.durationMs !== undefined && <span> · {Math.max(1, Math.round(item.durationMs / 1000))} s</span>}
+          {item.costUsd !== undefined && item.costUsd > 0 && <span> · ${item.costUsd.toFixed(3)}</span>}
+        </div>
+      )
+    case 'error':
+      return <div className="tk-error">{item.text}</div>
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Panel
+
+export function TaskPanel({ wsId, panel }: { wsId: string; panel: Panel }) {
+  const defaults = useApp((s) => s.settings?.taskDefaults)
+  const config: TaskConfig = panel.task ?? defaults ?? { provider: 'claude', model: '', mode: 'build', access: 'full-access' }
+  const [items, setItems] = useState<TaskItem[]>([])
+  const [running, setRunning] = useState(false)
+  const [folderOk, setFolderOk] = useState(true)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const stick = useRef(true)
+  const cwd = panel.cwd ?? ''
+
+  useEffect(() => {
+    let alive = true
+    if (!panel.task) useApp.getState().updatePanel(wsId, panel.id, { task: config })
+    void window.api.task.open(panel.id, wsId, panel.title, cwd, config).then((snap) => {
+      if (!alive) return
+      setItems(snap.items)
+      setRunning(snap.running)
+    })
+    void window.api.fs.list(cwd).then(
+      () => alive && setFolderOk(true),
+      () => alive && setFolderOk(false)
+    )
+    const off = window.api.task.onEvent((ev) => {
+      if (ev.panelId !== panel.id) return
+      if (ev.type === 'running') setRunning(ev.running)
+      else if (ev.type === 'item')
+        setItems((list) => {
+          const i = list.findIndex((x) => x.id === ev.item.id && x.kind === ev.item.kind)
+          if (i < 0) return [...list, ev.item]
+          const next = [...list]
+          next[i] = ev.item
+          return next
+        })
+      else if (ev.type === 'delta')
+        setItems((list) => list.map((x) => (x.id === ev.id && x.kind === 'text' ? { ...x, text: x.text + ev.text } : x)))
+    })
+    return () => {
+      alive = false
+      off()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [panel.id])
+
+  // Mantener el scroll abajo mientras llega texto, salvo que el usuario haya subido.
+  useEffect(() => {
+    const el = scrollRef.current
+    if (el && stick.current) el.scrollTop = el.scrollHeight
+  }, [items])
+
+  function setConfig(next: TaskConfig) {
+    useApp.getState().updatePanel(wsId, panel.id, { task: next })
+    void window.api.task.setConfig(panel.id, next)
+    void window.api.settings.set({ taskDefaults: next }).then((s) => useApp.getState().setSettings(s))
+  }
+
+  async function send(text: string, files: string[]) {
+    if (!items.some((i) => i.kind === 'user')) {
+      const title = text.split('\n')[0].slice(0, 50)
+      useApp.getState().updatePanel(wsId, panel.id, { title })
+    }
+    try {
+      await window.api.task.send(panel.id, text, files)
+    } catch (err) {
+      useApp.getState().toast(errMsg(err), 'error')
+    }
+  }
+
+  const empty = items.length === 0
+
+  return (
+    <div className="task-panel">
+      {empty ? (
+        <div className="tk-empty">
+          {!folderOk && (
+            <div className="tk-note">
+              <span className="dot dot-waiting" /> Un agente necesita un proyecto donde trabajar.{' '}
+              <button className="link" onClick={() => useApp.getState().setNewWorkspaceOpen(true)}>
+                Abrir una carpeta →
+              </button>
+            </div>
+          )}
+          <div className="tk-cwd muted small" title={cwd}>
+            📁 {cwd.split(/[\\/]/).slice(-2).join('/')}
+          </div>
+          <Composer config={config} onConfig={setConfig} running={running} cwd={cwd} onSend={send} onStop={() => void window.api.task.stop(panel.id)} big />
+        </div>
+      ) : (
+        <>
+          <div
+            className="tk-thread"
+            ref={scrollRef}
+            onScroll={(e) => {
+              const el = e.currentTarget
+              stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40
+            }}
+          >
+            {items.map((it) => (
+              <Item key={`${it.kind}:${it.id}`} item={it} panelId={panel.id} />
+            ))}
+            {running && (
+              <div className="tk-working">
+                <span className="spinner" /> {PROVIDERS.find((p) => p.id === config.provider)?.name} está trabajando…
+              </div>
+            )}
+          </div>
+          <Composer config={config} onConfig={setConfig} running={running} cwd={cwd} onSend={send} onStop={() => void window.api.task.stop(panel.id)} big={false} />
+        </>
+      )}
+    </div>
+  )
+}

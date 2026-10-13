@@ -1,0 +1,122 @@
+html,
+body {
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+  font-family: 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  user-select: none;
+}
+
+.pill-body {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  height: 100vh;
+}
+
+.pill {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: calc(100% - 16px);
+  box-sizing: border-box;
+  margin-bottom: 8px;
+  padding: 14px 18px;
+  border-radius: 22px;
+  background: rgba(16, 19, 27, 0.94);
+  border: 1px solid #2a3142;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  color: #e6ebf5;
+  cursor: pointer;
+  transition: opacity 0.15s, transform 0.15s;
+}
+
+.pill.hidden {
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+}
+
+.pill-orb {
+  display: flex;
+  gap: 3px;
+  align-items: center;
+  height: 26px;
+  flex: none;
+}
+
+.pill-orb span {
+  width: 5px;
+  height: 10px;
+  border-radius: 3px;
+  background: #7c9cff;
+}
+
+.phase-listening .pill-orb span {
+  background: #ff6b6b;
+  animation: bar 0.9s ease-in-out infinite;
+}
+.phase-listening .pill-orb span:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.phase-listening .pill-orb span:nth-child(3) {
+  animation-delay: 0.3s;
+}
+.phase-transcribing .pill-orb span,
+.phase-thinking .pill-orb span {
+  animation: pulse 1.1s ease-in-out infinite;
+}
+.phase-thinking .pill-orb span:nth-child(2) {
+  animation-delay: 0.2s;
+}
+.phase-thinking .pill-orb span:nth-child(3) {
+  animation-delay: 0.4s;
+}
+.phase-done .pill-orb span {
+  background: #3ddc97;
+}
+.phase-error .pill-orb span {
+  background: #f5b041;
+}
+
+@keyframes bar {
+  0%,
+  100% {
+    height: 8px;
+  }
+  50% {
+    height: 24px;
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.pill-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.pill-phase {
+  font-size: 13px;
+  font-weight: 600;
+  color: #aab4c8;
+}
+
+.pill-detail {
+  font-size: 14px;
+  line-height: 1.35;
+  margin-top: 2px;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: pre-line;
+}

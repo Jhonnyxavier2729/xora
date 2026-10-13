@@ -1,0 +1,380 @@
+// Tipos compartidos entre main, preload, renderer y el cliente remoto.
+
+export type PanelType = 'task' | 'terminal' | 'agent' | 'editor' | 'browser' | 'notes' | 'git'
+
+// ---------------------------------------------------------------------------
+// Tareas: conversación estructurada con Claude Code, Codex u OpenCode.
+
+export type TaskProvider = 'claude' | 'codex' | 'opencode'
+export type TaskMode = 'build' | 'plan'
+export type TaskAccess = 'approval-required' | 'auto-accept-edits' | 'auto' | 'full-access'
+
+export interface TaskConfig {
+  provider: TaskProvider
+  /** Vacío = modelo predeterminado del agente. */
+  model: string
+  mode: TaskMode
+  access: TaskAccess
+}
+
+export interface TaskModel {
+  id: string
+  label: string
+}
+
+export type TaskModels = Record<TaskProvider, TaskModel[]>
+
+export type TaskItem =
+  | { kind: 'user'; id: string; text: string; files?: string[] }
+  | { kind: 'text'; id: string; text: string; streaming?: boolean }
+  | { kind: 'tool'; id: string; name: string; title: string; status: 'running' | 'done' | 'error'; output?: string }
+  | { kind: 'approval'; id: string; tool: string; title: string; detail: string; state: 'pending' | 'allowed' | 'denied' }
+  | { kind: 'result'; id: string; ok: boolean; text: string; costUsd?: number; durationMs?: number }
+  | { kind: 'error'; id: string; text: string }
+
+export interface TaskSnapshot {
+  panelId: string
+  config: TaskConfig
+  cwd: string
+  items: TaskItem[]
+  running: boolean
+  sessionId: string | null
+}
+
+export type TaskEvent = { panelId: string } & (
+  | { type: 'item'; item: TaskItem }
+  | { type: 'delta'; id: string; text: string }
+  | { type: 'running'; running: boolean }
+  | { type: 'session'; sessionId: string }
+)
+
+export interface AccountStatus {
+  id: TaskProvider
+  signedIn: boolean
+  /** Correo o descripción de la cuenta. */
+  label: string | null
+  /** El agente usa tu clave de API en lugar de la sesión. */
+  usesApiKey: boolean
+}
+
+export type AgentId = 'claude' | 'codex' | 'opencode' | 'cursor' | 'gemini' | 'custom'
+
+export interface Panel {
+  id: string
+  type: PanelType
+  title: string
+  x: number
+  y: number
+  w: number
+  h: number
+  z: number
+  /** Carpeta de trabajo del panel (terminal/agente/editor/git). Por defecto, la raíz del workspace. */
+  cwd?: string
+  /** Agente que corre en un panel 'agent'. */
+  agent?: AgentId
+  /** Comando personalizado para agent === 'custom'. */
+  command?: string
+  /** Rama del worktree si el panel trabaja aislado. */
+  worktreeBranch?: string
+  url?: string
+  file?: string
+  /** Color de las notas tipo pósit. */
+  color?: NoteColor
+  /** Configuración de un panel de tarea. */
+  task?: TaskConfig
+}
+
+export type NoteColor = 'yellow' | 'green' | 'pink' | 'blue' | 'dark'
+
+export interface Viewport {
+  x: number
+  y: number
+  zoom: number
+}
+
+export interface Workspace {
+  id: string
+  name: string
+  root: string
+  panels: Panel[]
+  viewport: Viewport
+  updatedAt: number
+}
+
+export type PtyStatus = 'working' | 'waiting' | 'idle' | 'exited'
+
+export interface PtyInfo {
+  id: string
+  workspaceId: string
+  kind: 'terminal' | 'agent'
+  agent?: AgentId
+  title: string
+  cwd: string
+  status: PtyStatus
+  /** true cuando el agente parece pedir una aprobación (y/n, Allow, etc.). */
+  needsApproval: boolean
+  lastOutputAt: number
+  exitCode?: number
+}
+
+export interface EnsurePtyOptions {
+  id: string
+  workspaceId: string
+  kind: 'terminal' | 'agent'
+  agent?: AgentId
+  command?: string
+  title: string
+  cwd: string
+  cols: number
+  rows: number
+}
+
+export interface AgentDefinition {
+  id: AgentId
+  name: string
+  /** Comando que se escribe en el shell para arrancar el agente. */
+  command: string
+  installHint: string
+}
+
+export const AGENTS: AgentDefinition[] = [
+  { id: 'claude', name: 'Claude Code', command: 'claude', installHint: 'npm install -g @anthropic-ai/claude-code' },
+  { id: 'codex', name: 'Codex', command: 'codex', installHint: 'npm install -g @openai/codex' },
+  { id: 'opencode', name: 'OpenCode', command: 'opencode', installHint: 'npm install -g opencode-ai' },
+  { id: 'cursor', name: 'Cursor CLI', command: 'cursor-agent', installHint: 'https://cursor.com/cli' },
+  { id: 'gemini', name: 'Gemini CLI', command: 'gemini', installHint: 'npm install -g @google/gemini-cli' }
+]
+
+export interface FileEntry {
+  name: string
+  path: string
+  dir: boolean
+}
+
+export interface GitFileStatus {
+  path: string
+  index: string
+  workingDir: string
+}
+
+export interface GitStatus {
+  isRepo: boolean
+  branch: string
+  ahead: number
+  behind: number
+  files: GitFileStatus[]
+}
+
+export interface Worktree {
+  path: string
+  branch: string
+  head: string
+  main: boolean
+}
+
+export type SttProvider = 'groq' | 'openai'
+
+export interface Settings {
+  sttProvider: SttProvider
+  /** Tecla para mantener pulsada y hablar (nombre de UiohookKey). */
+  holdKey: string
+  /** Atajo global alternativo para alternar la grabación. */
+  toggleShortcut: string
+  speakReplies: boolean
+  language: string
+  remotePort: number
+  shell: string
+  notifyOnWaiting: boolean
+  /** Tema de color de la interfaz (id de THEMES en el renderer). */
+  theme: string
+  /** Color de acento (hex). */
+  accent: string
+  /** Fondo del lienzo: 'none', 'builtin:<id>' o 'file' (imagen elegida por el usuario). */
+  wallpaper: string
+  /** Versión de la imagen de fondo, para invalidar la caché al cambiarla. */
+  wallpaperVersion: number
+  /** Oscurecido del fondo, 0–90 (%). */
+  wallpaperDim: number
+  /** Opacidad de los paneles, 70–100 (%). */
+  panelOpacity: number
+  /** Quién responde por Xen, en orden de prioridad (si uno falla se prueba el siguiente). */
+  xenProviders: XenProviderConfig[]
+  /** Xen ejecuta acciones sin pedir confirmación. */
+  xenActWithoutAsking: boolean
+  /** Lanzar cada agente sin que pida permiso en cada paso. */
+  agentAutonomy: Partial<Record<AgentId, boolean>>
+  checkAgentUpdates: boolean
+  terminalFontSize: number
+  editorFontSize: number
+  editorMinimap: boolean
+  browserHome: string
+  defaultNoteColor: NoteColor
+  showMinimap: boolean
+  gitRefreshSeconds: number
+  /** Carpeta donde se clonan repositorios por defecto. */
+  cloneDir: string
+  /** Usar tu clave de API en lugar de la sesión del agente. */
+  agentUseApiKey: Partial<Record<TaskProvider, boolean>>
+  /** Configuración inicial de las tareas nuevas. */
+  taskDefaults: TaskConfig
+}
+
+export type XenProviderId = 'claude-cli' | 'codex-cli' | 'api'
+
+export interface XenProviderConfig {
+  id: XenProviderId
+  /** Modelo; vacío = el predeterminado del proveedor. */
+  model: string
+}
+
+export interface XenProviderStatus {
+  id: XenProviderId
+  ready: boolean
+  detail: string
+}
+
+/** Banderas de autonomía que se añaden al lanzar cada agente en una terminal. */
+export const AUTONOMY_FLAGS: Partial<Record<AgentId, string>> = {
+  claude: '--dangerously-skip-permissions',
+  codex: '--full-auto',
+  cursor: '--force',
+  gemini: '--yolo'
+}
+
+export interface AgentVersionInfo {
+  id: AgentId
+  installed: string | null
+  latest: string | null
+  updateCommand: string | null
+}
+
+export interface RecentProject {
+  path: string
+  name: string
+  branch: string | null
+  exists: boolean
+  openedAt: number
+}
+
+export interface GithubRepo {
+  nameWithOwner: string
+  url: string
+  description: string
+  isPrivate: boolean
+  updatedAt: string
+}
+
+export interface AppInfo {
+  user: string
+  version: string
+  electron: string
+  node: string
+  platform: string
+  userData: string
+}
+
+export const DEFAULT_SETTINGS: Settings = {
+  sttProvider: 'groq',
+  holdKey: 'CtrlRight',
+  toggleShortcut: 'CommandOrControl+Shift+Space',
+  speakReplies: false,
+  language: 'es',
+  remotePort: 47321,
+  shell: '',
+  notifyOnWaiting: true,
+  theme: 'graphite',
+  accent: '#ff6b4a',
+  wallpaper: 'builtin:assembly',
+  wallpaperVersion: 0,
+  wallpaperDim: 35,
+  panelOpacity: 100,
+  xenProviders: [
+    { id: 'claude-cli', model: 'opus' },
+    { id: 'api', model: 'claude-opus-5-5' }
+  ],
+  xenActWithoutAsking: true,
+  agentAutonomy: {},
+  checkAgentUpdates: true,
+  terminalFontSize: 13,
+  editorFontSize: 13,
+  editorMinimap: false,
+  browserHome: '',
+  defaultNoteColor: 'yellow',
+  showMinimap: true,
+  gitRefreshSeconds: 5,
+  cloneDir: '',
+  agentUseApiKey: {},
+  taskDefaults: { provider: 'claude', model: 'claude-opus-5-5', mode: 'build', access: 'full-access' }
+}
+
+export const SECRET_NAMES = ['anthropic', 'openai', 'groq', 'gemini', 'openrouter'] as const
+export type SecretName = (typeof SECRET_NAMES)[number]
+
+export type SecretStatus = Record<SecretName, boolean>
+
+export interface RemoteDevice {
+  id: string
+  name: string
+  createdAt: number
+  lastSeenAt: number
+}
+
+export interface RemoteState {
+  enabled: boolean
+  port: number
+  lanUrls: string[]
+  tunnelUrl: string | null
+  tunnelStatus: 'off' | 'starting' | 'on' | 'missing' | 'error'
+  pairCode: string | null
+  pairExpiresAt: number | null
+  pairUrl: string | null
+  pairQr: string | null
+  devices: RemoteDevice[]
+  connectedClients: number
+}
+
+export type VoiceState =
+  | { phase: 'idle' }
+  | { phase: 'listening' }
+  | { phase: 'transcribing' }
+  | { phase: 'thinking'; transcript: string }
+  | { phase: 'done'; transcript: string; reply: string }
+  | { phase: 'error'; message: string }
+
+export interface XenAction {
+  tool: string
+  summary: string
+}
+
+export interface XenResult {
+  reply: string
+  actions: XenAction[]
+}
+
+/** Mensajes del canal WebSocket remoto. */
+export type RemoteClientMessage =
+  | { t: 'attach'; ptyId: string; cols?: number; rows?: number }
+  | { t: 'detach'; ptyId: string }
+  | { t: 'input'; ptyId: string; data: string }
+  | { t: 'resize'; ptyId: string; cols: number; rows: number }
+
+export type RemoteServerMessage =
+  | { t: 'state'; workspaces: RemoteWorkspaceSummary[]; ptys: PtyInfo[] }
+  | { t: 'pty-status'; info: PtyInfo }
+  | { t: 'data'; ptyId: string; data: string }
+  | { t: 'replay'; ptyId: string; data: string }
+  | { t: 'exit'; ptyId: string; code: number }
+  | { t: 'attention'; ptyId: string; title: string; message: string }
+
+export interface RemoteWorkspaceSummary {
+  id: string
+  name: string
+  root: string
+  panels: Pick<Panel, 'id' | 'type' | 'title' | 'agent'>[]
+}
+
+/** Peticiones de main → renderer para mutar el lienzo (Xen y acceso remoto). */
+export type CanvasCommand =
+  | { kind: 'create-panel'; requestId: string; workspaceId: string; panel: Partial<Panel> & { type: PanelType } }
+  | { kind: 'focus-panel'; workspaceId: string; panelId: string }
+  | { kind: 'open-workspace'; workspaceId: string }
