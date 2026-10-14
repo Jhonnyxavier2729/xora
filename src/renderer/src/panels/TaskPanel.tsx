@@ -455,7 +455,103 @@ function ToolRow({ item }: { item: Extract<TaskItem, { kind: 'tool' }> }) {
   )
 }
 
-function Item({ item, panelId }: { item: TaskItem; panelId: string }) {
+/** Claude te pregunta algo con opciones (AskUserQuestion): se contesta aquí, no es un permiso. */
+function QuestionCard({ item, panelId }: { item: Extract<TaskItem, { kind: 'approval' }>; panelId: string }) {
+  const questions = item.questions ?? []
+  const [picked, setPicked] = useState<Record<number, string[]>>({})
+  const [other, setOther] = useState<Record<number, string>>({})
+  const pending = item.state === 'pending'
+
+  const answerFor = (i: number): string => {
+    const free = (other[i] ?? '').trim()
+    return free || (picked[i] ?? []).join(', ')
+  }
+  const ready = questions.every((_, i) => answerFor(i))
+
+  const toggle = (i: number, label: string, multi: boolean) => {
+    setOther((o) => ({ ...o, [i]: '' }))
+    setPicked((p) => {
+      const cur = p[i] ?? []
+      if (!multi) return { ...p, [i]: [label] }
+      return { ...p, [i]: cur.includes(label) ? cur.filter((l) => l !== label) : [...cur, label] }
+    })
+  }
+
+  const submit = () => {
+    const answers: Record<string, string> = {}
+    questions.forEach((q, i) => (answers[q.question] = answerFor(i)))
+    void window.api.task.answer(panelId, item.id, answers)
+  }
+
+  return (
+    <div className={`tk-ask ${item.state}`}>
+      {questions.map((q, i) => (
+        <div key={q.question} className="tk-ask-q">
+          {q.header && <span className="tk-ask-tag">{q.header}</span>}
+          <div className="tk-ask-text">{q.question}</div>
+          {pending ? (
+            <>
+              <div className="tk-ask-options">
+                {q.options.map((o) => {
+                  const on = (picked[i] ?? []).includes(o.label) && !(other[i] ?? '').trim()
+                  return (
+                    <button key={o.label} className={`tk-ask-opt ${on ? 'on' : ''}`} onClick={() => toggle(i, o.label, !!q.multiSelect)}>
+                      <strong>{o.label}</strong>
+                      {o.description && <span className="muted small">{o.description}</span>}
+                    </button>
+                  )
+                })}
+              </div>
+              <input
+                className="tk-ask-other"
+                placeholder="Otra respuesta…"
+                value={other[i] ?? ''}
+                onChange={(e) => setOther((o) => ({ ...o, [i]: e.target.value }))}
+              />
+            </>
+          ) : (
+            <div className="tk-ask-answer">{item.answers?.[q.question] ?? (item.state === 'denied' ? 'Sin respuesta' : '')}</div>
+          )}
+        </div>
+      ))}
+      {pending && (
+        <div className="row">
+          <button className="btn small primary" disabled={!ready} onClick={submit}>
+            Responder
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Plan propuesto por Claude (ExitPlanMode): «Implementar» lo ejecuta en Build con el acceso elegido. */
+function PlanCard({ item, panelId, onImplement }: { item: Extract<TaskItem, { kind: 'approval' }>; panelId: string; onImplement: (approvalId: string | null) => void }) {
+  return (
+    <div className={`tk-plan ${item.state}`}>
+      <div className="tk-approval-head">
+        <strong>{item.state === 'pending' ? 'Plan propuesto' : item.state === 'allowed' ? 'Plan aprobado' : 'Plan rechazado'}</strong>
+      </div>
+      <div className="tk-plan-body tk-text markdown">
+        <ReactMarkdown remarkPlugins={[remarkGfm]}>{item.plan ?? ''}</ReactMarkdown>
+      </div>
+      {item.state === 'pending' && (
+        <div className="row">
+          <button className="btn small" onClick={() => void window.api.task.approve(panelId, item.id, false)}>
+            Seguir planificando
+          </button>
+          <button className="btn small primary" onClick={() => onImplement(item.id)}>
+            Implementar
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function Item({ item, panelId, onImplement }: { item: TaskItem; panelId: string; onImplement: (approvalId: string | null) => void }) {
+  if (item.kind === 'approval' && item.special === 'question') return <QuestionCard item={item} panelId={panelId} />
+  if (item.kind === 'approval' && item.special === 'plan') return <PlanCard item={item} panelId={panelId} onImplement={onImplement} />
   switch (item.kind) {
     case 'user':
       return (
@@ -475,7 +571,8 @@ function Item({ item, panelId }: { item: TaskItem; panelId: string }) {
         </div>
       )
     case 'tool':
-      return <ToolRow item={item} />
+      // La pregunta y el plan ya se muestran como tarjetas: la fila de la herramienta sobra.
+      return item.name === 'AskUserQuestion' || item.name === 'ExitPlanMode' ? null : <ToolRow item={item} />
     case 'approval':
       return (
         <div className={`tk-approval ${item.state}`}>
@@ -663,6 +760,17 @@ export function TaskPanel({ wsId, panel }: { wsId: string; panel: Panel }) {
     useApp.getState().reveal(id)
   }
 
+  /** Pasa de Plan a Build con el acceso elegido y le pide al agente que ejecute el plan. */
+  function implement(approvalId: string | null) {
+    setConfig({ ...config, mode: 'build' })
+    void window.api.task.implementPlan(panel.id, approvalId).catch((err) => useApp.getState().toast(errMsg(err), 'error'))
+  }
+
+  // Tras un turno de planificación terminado (y sin tarjeta de plan pendiente), se ofrece implementarlo.
+  const last = items[items.length - 1]
+  const planPending = items.some((i) => i.kind === 'approval' && i.state === 'pending')
+  const planReady = config.mode === 'plan' && !running && !planPending && last?.kind === 'result' && last.ok
+
   async function send(text: string, files: string[]) {
     if (!items.some((i) => i.kind === 'user')) {
       const title = text.split('\n')[0].slice(0, 50)
@@ -706,11 +814,19 @@ export function TaskPanel({ wsId, panel }: { wsId: string; panel: Panel }) {
             }}
           >
             {items.map((it) => (
-              <Item key={`${it.kind}:${it.id}`} item={it} panelId={panel.id} />
+              <Item key={`${it.kind}:${it.id}`} item={it} panelId={panel.id} onImplement={implement} />
             ))}
             {running && (
               <div className="tk-working">
                 <span className="spinner" /> {PROVIDERS.find((p) => p.id === config.provider)?.name} está trabajando…
+              </div>
+            )}
+            {planReady && (
+              <div className="tk-plan-ready">
+                <span>Plan listo. ¿Lo ejecuto?</span>
+                <button className="btn small primary" onClick={() => implement(null)}>
+                  Implementar
+                </button>
               </div>
             )}
           </div>

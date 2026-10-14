@@ -5,6 +5,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { app } from 'electron'
 import { join } from 'node:path'
 import type {
+  AskQuestion,
   PtyInfo,
   TaskAccess,
   TaskConfig,
@@ -39,6 +40,30 @@ const CLAUDE_MODELS: (TaskModel & { minVersion?: string })[] = [
   { id: 'claude-haiku-5-5', label: 'Haiku 5.5' },
   { id: 'claude-haiku-4-5', label: 'Haiku 4.5' }
 ]
+
+/** AskUserQuestion y ExitPlanMode llegan como permisos, pero son una pregunta y un plan: se muestran así. */
+function specialApproval(
+  tool: string,
+  input: unknown
+): { title: string; fields: { special: 'question' | 'plan'; questions?: AskQuestion[]; plan?: string } } | null {
+  const data = (input ?? {}) as Record<string, unknown>
+  if (tool === 'AskUserQuestion' && Array.isArray(data.questions)) {
+    const questions = (data.questions as Record<string, unknown>[])
+      .map((q) => ({
+        question: String(q.question ?? ''),
+        header: q.header ? String(q.header) : undefined,
+        multiSelect: q.multiSelect === true,
+        options: (Array.isArray(q.options) ? (q.options as Record<string, unknown>[]) : []).map((o) => ({
+          label: String(o.label ?? ''),
+          description: o.description ? String(o.description) : undefined
+        }))
+      }))
+      .filter((q) => q.question)
+    if (questions.length) return { title: 'Claude te pregunta', fields: { special: 'question', questions } }
+  }
+  if (tool === 'ExitPlanMode' && typeof data.plan === 'string') return { title: 'Plan propuesto', fields: { special: 'plan', plan: data.plan } }
+  return null
+}
 
 function versionAtLeast(version: string | null, min: string): boolean {
   if (!version) return false
@@ -412,13 +437,17 @@ class TaskManager extends EventEmitter {
         }
         const id = randomUUID()
         task.pendingApprovals.set(id, { requestId: ev.request_id, input: req.input })
+        // Dos herramientas de Claude no son permisos: AskUserQuestion es una pregunta con opciones y
+        // ExitPlanMode es un plan que hay que aprobar. Se muestran como lo que son.
+        const special = specialApproval(req.tool_name, req.input)
         this.push(task, {
           kind: 'approval',
           id,
           tool: req.tool_name,
-          title: `${req.display_name ?? req.tool_name}: ${toolTitle(req.tool_name, req.input)}`,
-          detail: shortJson(req.input, 1200),
-          state: 'pending'
+          title: special?.title ?? `${req.display_name ?? req.tool_name}: ${toolTitle(req.tool_name, req.input)}`,
+          detail: special ? '' : shortJson(req.input, 1200),
+          state: 'pending',
+          ...(special?.fields ?? {})
         })
         ptys.emit('status', {
           id: task.panelId,
@@ -446,6 +475,55 @@ class TaskManager extends EventEmitter {
         break
       }
     }
+  }
+
+  /** Respuesta a una pregunta de Claude: pregunta → opción elegida (varias separadas por coma). */
+  answerQuestion(panelId: string, approvalId: string, answers: Record<string, string>): void {
+    const task = this.tasks.get(panelId)
+    const pending = task?.pendingApprovals.get(approvalId)
+    if (!task || !pending) return
+    task.pendingApprovals.delete(approvalId)
+    const input = (pending.input ?? {}) as Record<string, unknown>
+    task.proc?.stdin.write(
+      JSON.stringify({
+        type: 'control_response',
+        response: { subtype: 'success', request_id: pending.requestId, response: { behavior: 'allow', updatedInput: { ...input, answers } } }
+      }) + '\n'
+    )
+    const item = task.items.find((i) => i.id === approvalId && i.kind === 'approval')
+    if (item && item.kind === 'approval') this.push(task, { ...item, state: 'allowed', answers })
+    if (task.running) this.setRunningStatusOnly(task)
+  }
+
+  /**
+   * «Implementar» un plan: el plan se da por aprobado, el turno de planificación termina y la tarea pasa
+   * a Build con el acceso elegido para que Claude lo ejecute. Así no quedan permisos a mitad de camino.
+   */
+  async implementPlan(panelId: string, approvalId: string | null): Promise<void> {
+    const task = this.tasks.get(panelId)
+    if (!task) return
+    const pending = approvalId ? task.pendingApprovals.get(approvalId) : undefined
+    if (approvalId && pending) {
+      task.pendingApprovals.delete(approvalId)
+      task.proc?.stdin.write(
+        JSON.stringify({
+          type: 'control_response',
+          response: {
+            subtype: 'success',
+            request_id: pending.requestId,
+            response: { behavior: 'deny', message: 'El usuario aprobó el plan. Termina este turno sin hacer nada más; en el siguiente mensaje se te pedirá implementarlo.' }
+          }
+        }) + '\n'
+      )
+      const item = task.items.find((i) => i.id === approvalId && i.kind === 'approval')
+      if (item && item.kind === 'approval') this.push(task, { ...item, state: 'allowed' })
+    }
+    // Espera a que acabe el turno de planificación (con tope por si Claude no responde).
+    const start = Date.now()
+    while (task.running && Date.now() - start < 30_000) await new Promise((r) => setTimeout(r, 250))
+    if (task.running) this.stop(panelId)
+    task.config = { ...task.config, mode: 'build' }
+    await this.send(panelId, 'Implementa ahora el plan que acabas de proponer.', [])
   }
 
   approve(panelId: string, approvalId: string, allow: boolean): void {

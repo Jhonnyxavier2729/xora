@@ -24,11 +24,31 @@ export interface TaskModel {
 
 export type TaskModels = Record<TaskProvider, TaskModel[]>
 
+/** Pregunta con opciones que Claude hace al usuario (herramienta AskUserQuestion). */
+export interface AskQuestion {
+  question: string
+  header?: string
+  multiSelect?: boolean
+  options: { label: string; description?: string }[]
+}
+
 export type TaskItem =
   | { kind: 'user'; id: string; text: string; files?: string[] }
   | { kind: 'text'; id: string; text: string; streaming?: boolean }
   | { kind: 'tool'; id: string; name: string; title: string; status: 'running' | 'done' | 'error'; output?: string }
-  | { kind: 'approval'; id: string; tool: string; title: string; detail: string; state: 'pending' | 'allowed' | 'denied' }
+  | {
+      kind: 'approval'
+      id: string
+      tool: string
+      title: string
+      detail: string
+      state: 'pending' | 'allowed' | 'denied'
+      /** question: Claude te hace una pregunta con opciones · plan: Claude propone un plan para aprobar. */
+      special?: 'question' | 'plan'
+      questions?: AskQuestion[]
+      plan?: string
+      answers?: Record<string, string>
+    }
   | { kind: 'result'; id: string; ok: boolean; text: string; costUsd?: number; durationMs?: number }
   | { kind: 'error'; id: string; text: string }
 

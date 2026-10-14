@@ -77,6 +77,10 @@ const api = {
       ipcRenderer.invoke('task:open', panelId, wsId, title, cwd, config),
     setConfig: (panelId: string, config: TaskConfig): Promise<void> => ipcRenderer.invoke('task:config', panelId, config),
     send: (panelId: string, text: string, files: string[]): Promise<void> => ipcRenderer.invoke('task:send', panelId, text, files),
+    answer: (panelId: string, approvalId: string, answers: Record<string, string>): Promise<void> =>
+      ipcRenderer.invoke('task:answer', panelId, approvalId, answers),
+    implementPlan: (panelId: string, approvalId: string | null): Promise<void> =>
+      ipcRenderer.invoke('task:implementPlan', panelId, approvalId),
     approve: (panelId: string, approvalId: string, allow: boolean): Promise<void> =>
       ipcRenderer.invoke('task:approve', panelId, approvalId, allow),
     stop: (panelId: string): Promise<void> => ipcRenderer.invoke('task:stop', panelId),

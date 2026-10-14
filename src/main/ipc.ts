@@ -92,6 +92,12 @@ export function registerIpc(): void {
   )
   ipcMain.handle('task:config', (_e, panelId: string, config: TaskConfig) => tasks.setConfig(panelId, config))
   ipcMain.handle('task:send', (_e, panelId: string, text: string, files: string[]) => tasks.send(panelId, text, files))
+  ipcMain.handle('task:answer', (_e, panelId: string, approvalId: string, answers: Record<string, string>) => {
+    const clean: Record<string, string> = {}
+    for (const [q, a] of Object.entries(answers ?? {})) clean[String(q).slice(0, 500)] = String(a).slice(0, 2000)
+    tasks.answerQuestion(panelId, approvalId, clean)
+  })
+  ipcMain.handle('task:implementPlan', (_e, panelId: string, approvalId: string | null) => tasks.implementPlan(panelId, approvalId))
   ipcMain.handle('task:approve', (_e, panelId: string, approvalId: string, allow: boolean) => tasks.approve(panelId, approvalId, allow))
   ipcMain.handle('task:stop', (_e, panelId: string) => tasks.stop(panelId))
   ipcMain.handle('task:close', (_e, panelId: string) => tasks.close(panelId))
