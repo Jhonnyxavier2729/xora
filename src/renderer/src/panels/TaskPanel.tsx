@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import type { Panel, TaskAccess, TaskConfig, TaskItem, TaskModels, TaskProvider, Worktree } from '@shared/types'
+import type { Panel, TaskAccess, TaskConfig, TaskItem, TaskModel, TaskModels, TaskProvider, Worktree } from '@shared/types'
 import { IconMic } from '../components/Icons'
 import { useApp } from '../state'
 import { errMsg } from '../utils'
@@ -83,6 +83,117 @@ function useOutside<T extends HTMLElement>(open: boolean, close: () => void) {
 // ---------------------------------------------------------------------------
 // Selector de modelo
 
+const EFFORT_LABEL: Record<string, string> = {
+  minimal: 'Mínimo',
+  low: 'Bajo',
+  medium: 'Medio',
+  high: 'Alto',
+  xhigh: 'Muy alto',
+  max: 'Máximo',
+  ultra: 'Ultra',
+  ultrathink: 'Ultrathink'
+}
+const effortLabel = (e: string): string => EFFORT_LABEL[e] ?? e
+
+/** Quita de la configuración lo que el modelo elegido no admite (p. ej. un nivel que no existe en él). */
+function fitToModel(config: TaskConfig, model: TaskModel | undefined): TaskConfig {
+  const next: TaskConfig = { ...config }
+  if (!model?.efforts || (next.effort && !model.efforts.includes(next.effort))) delete next.effort
+  if (!model?.fast) delete next.fast
+  if (!model?.contexts) delete next.context
+  if (!model?.thinkingToggle) delete next.thinking
+  return next
+}
+
+/**
+ * Razonamiento del modelo (como en Deska): nivel de esfuerzo, modo rápido, ventana de contexto y el
+ * interruptor de «pensar». Cada modelo ofrece solo lo que admite. Se aplica desde el siguiente mensaje.
+ */
+function TuningPicker({ config, onChange }: { config: TaskConfig; onChange: (c: TaskConfig) => void }) {
+  const [open, setOpen] = useState(false)
+  const [models, setModels] = useState<TaskModels | null>(null)
+  const ref = useOutside<HTMLDivElement>(open, () => setOpen(false))
+  useEffect(() => {
+    void loadModels().then(setModels)
+  }, [open, config.provider])
+
+  const model = models?.[config.provider]?.find((m) => m.id === config.model)
+  const efforts = model?.efforts ?? []
+  if (!model || (!efforts.length && !model.fast && !model.contexts && !model.thinkingToggle)) return null
+
+  const set = (patch: Partial<TaskConfig>) => onChange({ ...config, ...patch })
+  const shown = config.effort ?? model.defaultEffort
+  const label = model.thinkingToggle
+    ? config.thinking === false
+      ? 'Sin pensar'
+      : 'Pensando'
+    : shown
+      ? `Razonamiento: ${effortLabel(shown)}`
+      : 'Razonamiento'
+  const context = config.context ?? model.defaultContext
+
+  return (
+    <div className="menu-anchor" ref={ref}>
+      <button className={`tk-chip plain ${config.effort || config.fast || config.thinking === false || config.context ? 'on' : ''}`} onClick={() => setOpen(!open)} title="Razonamiento, velocidad y contexto del modelo">
+        {label} ▾
+      </button>
+      {open && (
+        <div className="menu menu-up tk-tuning">
+          {efforts.length > 0 && (
+            <>
+              <div className="menu-title">Esfuerzo de razonamiento</div>
+              <div className="tk-seg">
+                {efforts.map((e) => (
+                  <button key={e} className={`tk-seg-btn ${shown === e ? 'on' : ''}`} onClick={() => set({ effort: e })}>
+                    {effortLabel(e)}
+                    {e === model.defaultEffort && !config.effort && <span className="muted small"> · por defecto</span>}
+                  </button>
+                ))}
+              </div>
+              {config.effort && (
+                <button className="link-plain muted small tk-reset" onClick={() => set({ effort: undefined })}>
+                  Usar el valor por defecto del agente
+                </button>
+              )}
+            </>
+          )}
+          {model.thinkingToggle && (
+            <label className="tk-switch">
+              <span>
+                <strong>Pensar antes de responder</strong>
+                <span className="muted small">Haiku 4.5 razona siempre, o responde directo.</span>
+              </span>
+              <input type="checkbox" checked={config.thinking !== false} onChange={(e) => set({ thinking: e.target.checked })} />
+            </label>
+          )}
+          {model.fast && (
+            <label className="tk-switch">
+              <span>
+                <strong>Modo rápido</strong>
+                <span className="muted small">Respuestas más rápidas del mismo modelo; cuesta más.</span>
+              </span>
+              <input type="checkbox" checked={!!config.fast} onChange={(e) => set({ fast: e.target.checked })} />
+            </label>
+          )}
+          {model.contexts && (
+            <>
+              <div className="menu-title">Ventana de contexto</div>
+              <div className="tk-seg">
+                {model.contexts.map((c) => (
+                  <button key={c} className={`tk-seg-btn ${context === c ? 'on' : ''}`} onClick={() => set({ context: c })}>
+                    {c === '1m' ? '1 M' : '200 k'}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+          <p className="muted small tk-tuning-note">Se aplica desde el siguiente mensaje de la tarea.</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 function ModelPicker({ config, onChange }: { config: TaskConfig; onChange: (c: TaskConfig) => void }) {
   const [open, setOpen] = useState(false)
   const [models, setModels] = useState<TaskModels | null>(null)
@@ -102,7 +213,9 @@ function ModelPicker({ config, onChange }: { config: TaskConfig; onChange: (c: T
   }, [models, tab, query])
 
   const pick = (id: string) => {
-    onChange({ ...config, provider: tab, model: id })
+    // Al cambiar de modelo se conserva el razonamiento si el nuevo lo admite, y se quita si no.
+    const target = models?.[tab]?.find((m) => m.id === id)
+    onChange(fitToModel({ ...config, provider: tab, model: id }, target))
     setOpen(false)
   }
 
@@ -341,6 +454,7 @@ function Composer({
           📎
         </button>
         <ModelPicker config={config} onChange={onConfig} />
+        <TuningPicker config={config} onChange={onConfig} />
         <button
           className={`tk-chip plain ${config.mode === 'plan' ? 'on' : ''}`}
           title="Build: el agente hace cambios · Plan: solo propone un plan"

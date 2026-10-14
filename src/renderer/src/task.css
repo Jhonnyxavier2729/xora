@@ -683,3 +683,64 @@
   border: 1px dashed color-mix(in srgb, var(--accent) 55%, var(--border));
   color: var(--muted);
 }
+
+/* Razonamiento del modelo: esfuerzo, modo rápido, contexto y thinking */
+.tk-tuning {
+  left: 0;
+  bottom: calc(100% + 6px);
+  top: auto;
+  min-width: 300px;
+  padding: 8px 10px 10px;
+}
+
+.tk-seg {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 2px 0 6px;
+}
+
+.tk-seg-btn {
+  padding: 5px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-2);
+  background: var(--panel);
+  color: var(--text);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.tk-seg-btn:hover {
+  border-color: var(--accent);
+}
+
+.tk-seg-btn.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, var(--panel));
+  color: var(--accent);
+}
+
+.tk-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 8px 2px;
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.tk-switch > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.tk-reset {
+  display: block;
+  margin: 0 0 6px 2px;
+}
+
+.tk-tuning-note {
+  margin: 8px 2px 0;
+}

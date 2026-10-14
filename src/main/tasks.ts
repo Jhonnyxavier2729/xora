@@ -25,21 +25,56 @@ import { ptys } from './pty'
 // ---------------------------------------------------------------------------
 // Catálogo de modelos
 
+const LEVELS = ['low', 'medium', 'high', 'xhigh', 'max']
+/** «ultrathink» no es un nivel del CLI: se aplica anteponiendo «Ultrathink:» al mensaje. */
+const FULL = [...LEVELS, 'ultrathink']
+const CLASSIC = ['low', 'medium', 'high', 'max', 'ultrathink']
+const CONTEXTS = ['200k', '1m']
+
 const CLAUDE_MODELS: (TaskModel & { minVersion?: string })[] = [
-  { id: '', label: 'Modelo predeterminado' },
-  { id: 'claude-opus-5-5', label: 'Opus 5.5' },
-  { id: 'claude-fable-5-1', label: 'Fable 5.1', minVersion: '2.1.260' },
-  { id: 'claude-opus-5', label: 'Opus 5' },
-  { id: 'claude-opus-4-8', label: 'Opus 4.8' },
-  { id: 'claude-opus-4-7', label: 'Opus 4.7' },
-  { id: 'claude-opus-4-6', label: 'Opus 4.6' },
-  { id: 'claude-opus-4-5', label: 'Opus 4.5' },
-  { id: 'claude-sonnet-5-5', label: 'Sonnet 5.5' },
-  { id: 'claude-sonnet-5', label: 'Sonnet 5' },
-  { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6' },
-  { id: 'claude-haiku-5-5', label: 'Haiku 5.5' },
-  { id: 'claude-haiku-4-5', label: 'Haiku 4.5' }
+  { id: '', label: 'Modelo predeterminado', efforts: LEVELS },
+  { id: 'claude-opus-5-5', label: 'Opus 5.5', efforts: FULL, fast: true, contexts: CONTEXTS, defaultContext: '1m' },
+  { id: 'claude-fable-5-1', label: 'Fable 5.1', minVersion: '2.1.260', efforts: FULL, contexts: CONTEXTS, defaultContext: '1m' },
+  { id: 'claude-opus-5', label: 'Opus 5', efforts: FULL, fast: true, contexts: CONTEXTS, defaultContext: '1m' },
+  { id: 'claude-opus-4-8', label: 'Opus 4.8', efforts: FULL, fast: true },
+  { id: 'claude-opus-4-7', label: 'Opus 4.7', efforts: FULL, fast: true },
+  { id: 'claude-opus-4-6', label: 'Opus 4.6', efforts: CLASSIC, fast: true, contexts: CONTEXTS, defaultContext: '1m' },
+  { id: 'claude-opus-4-5', label: 'Opus 4.5', efforts: ['low', 'medium', 'high', 'max'], fast: true },
+  { id: 'claude-sonnet-5-5', label: 'Sonnet 5.5', efforts: FULL, contexts: CONTEXTS, defaultContext: '200k' },
+  { id: 'claude-sonnet-5', label: 'Sonnet 5', efforts: FULL, contexts: CONTEXTS, defaultContext: '200k' },
+  { id: 'claude-sonnet-4-6', label: 'Sonnet 4.6', efforts: CLASSIC, contexts: CONTEXTS, defaultContext: '200k' },
+  { id: 'claude-haiku-5-5', label: 'Haiku 5.5', efforts: LEVELS },
+  { id: 'claude-haiku-4-5', label: 'Haiku 4.5', thinkingToggle: true }
 ]
+
+/** Modelos que admiten «xhigh»; en el resto el CLI lo toma como «max». */
+const XHIGH_MODELS = new Set(['claude-fable-5-1', 'claude-opus-5-5', 'claude-opus-5', 'claude-opus-4-8', 'claude-sonnet-5-5', 'claude-sonnet-5'])
+
+const claudeSlug = (model: string): string => model.replace(/\[1m\]$/, '').replace(/-\d{8}$/, '')
+const claudeModel = (model: string) => CLAUDE_MODELS.find((m) => m.id === claudeSlug(model))
+
+/** Argumentos de Claude Code para esfuerzo, contexto, modo rápido y thinking según la configuración de la tarea. */
+export function claudeTuning(config: TaskConfig): { model?: string; effort?: string; settings?: string; ultrathink: boolean } {
+  const info = claudeModel(config.model)
+  let model = config.model || undefined
+  // El contexto de 1M se pide con el sufijo [1m] del modelo.
+  if (model && info?.contexts && !model.endsWith('[1m]')) {
+    const chosen = config.context && info.contexts.includes(config.context) ? config.context : info.defaultContext
+    if (chosen === '1m') model = `${model}[1m]`
+  }
+  const raw = config.effort?.trim()
+  const supported = !raw || !info?.efforts || info.efforts.includes(raw)
+  let effort = supported ? raw : undefined
+  if (effort === 'xhigh' && info && !XHIGH_MODELS.has(info.id)) effort = 'max'
+  if (effort === 'max' && info?.id === 'claude-sonnet-4-6') effort = 'high'
+  const ultrathink = effort === 'ultrathink'
+  if (ultrathink) effort = undefined
+  const settings: Record<string, unknown> = {}
+  if (config.fast && info?.fast) settings.fastMode = true
+  if (config.thinking === false && info?.thinkingToggle) settings.alwaysThinkingEnabled = false
+  return { model, effort, settings: Object.keys(settings).length ? JSON.stringify(settings) : undefined, ultrathink }
+}
+
 
 /** AskUserQuestion y ExitPlanMode llegan como permisos, pero son una pregunta y un plan: se muestran así. */
 function specialApproval(
@@ -85,28 +120,60 @@ export async function taskModels(force = false): Promise<TaskModels> {
       } catch {
         return []
       }
-      return CLAUDE_MODELS.filter((m) => !m.minVersion || versionAtLeast(version, m.minVersion)).map(({ id, label }) => ({ id, label }))
+      return CLAUDE_MODELS.filter((m) => !m.minVersion || versionAtLeast(version, m.minVersion)).map(({ minVersion: _min, ...model }) => model)
     })(),
     (async () => {
       try {
         const { stdout } = await runCli('codex', ['debug', 'models'], { timeoutMs: 20_000 })
-        const catalog = JSON.parse(stdout) as { models?: { slug: string; display_name?: string; visibility?: string }[] }
+        const catalog = JSON.parse(stdout) as {
+          models?: {
+            slug: string
+            display_name?: string
+            visibility?: string
+            default_reasoning_level?: string
+            supported_reasoning_levels?: ({ effort?: string } | string)[]
+          }[]
+        }
         const list = (catalog.models ?? []).filter((m) => m.visibility !== 'hide' && m.visibility !== 'hidden')
-        return [{ id: '', label: 'Modelo predeterminado' }, ...list.map((m) => ({ id: m.slug, label: m.display_name ?? m.slug }))]
+        // Cada modelo de Codex publica los niveles de razonamiento que admite y el que usa por defecto.
+        const model = (m: (typeof list)[number]): TaskModel => {
+          const efforts = (m.supported_reasoning_levels ?? []).map((l) => (typeof l === 'string' ? l : (l.effort ?? ''))).filter(Boolean)
+          return { id: m.slug, label: m.display_name ?? m.slug, ...(efforts.length ? { efforts, defaultEffort: m.default_reasoning_level } : {}) }
+        }
+        return [{ id: '', label: 'Modelo predeterminado', efforts: LEVELS }, ...list.map(model)]
       } catch {
-        return (await resolveCli('codex')) ? [{ id: '', label: 'Modelo predeterminado' }] : []
+        return (await resolveCli('codex')) ? [{ id: '', label: 'Modelo predeterminado', efforts: LEVELS }] : []
       }
     })(),
     (async () => {
       try {
-        const { stdout } = await runCli('opencode', ['models'], { timeoutMs: 20_000 })
-        const ids = stdout
-          .split(/\r?\n/)
-          .map((l) => l.replace(/\x1b\[[0-9;]*m/g, '').trim())
-          .filter((l) => /^[\w.-]+\/[\w.:/-]+$/.test(l))
-        return [{ id: '', label: 'Modelo predeterminado' }, ...ids.map((id) => ({ id, label: id }))]
+        // «--verbose» añade a cada modelo sus variantes de razonamiento (--variant): low, medium, high…
+        const { stdout } = await runCli('opencode', ['models', '--verbose'], { timeoutMs: 30_000 })
+        const text = stdout.replace(/\x1b\[[0-9;]*m/g, '')
+        const parts = text.split(/^([\w.-]+\/[\w.:/-]+)\s*$/m)
+        const models: TaskModel[] = []
+        for (let i = 1; i < parts.length - 1; i += 2) {
+          let variants: string[] = []
+          try {
+            variants = Object.keys((JSON.parse(parts[i + 1].trim()) as { variants?: Record<string, unknown> }).variants ?? {})
+          } catch {
+            // Modelo sin ficha detallada: se lista igual, sin niveles.
+          }
+          models.push({ id: parts[i], label: parts[i], ...(variants.length ? { efforts: variants } : {}) })
+        }
+        if (!models.length) throw new Error('sin modelos')
+        return [{ id: '', label: 'Modelo predeterminado' }, ...models]
       } catch {
-        return []
+        try {
+          const { stdout } = await runCli('opencode', ['models'], { timeoutMs: 20_000 })
+          const ids = stdout
+            .split(/\r?\n/)
+            .map((l) => l.replace(/\x1b\[[0-9;]*m/g, '').trim())
+            .filter((l) => /^[\w.-]+\/[\w.:/-]+$/.test(l))
+          return [{ id: '', label: 'Modelo predeterminado' }, ...ids.map((id) => ({ id, label: id }))]
+        } catch {
+          return []
+        }
       }
     })()
   ])
@@ -293,13 +360,18 @@ class TaskManager extends EventEmitter {
   // --- Claude Code: un proceso vivo con stream-json en ambos sentidos -------------
 
   private async sendClaude(task: Task, text: string, files: string[]): Promise<void> {
-    const signature = JSON.stringify({ model: task.config.model, mode: task.config.mode, access: task.config.access })
+    // Todo lo que se pasa por la línea de comandos entra en la firma: si cambia algo (modelo, modo, acceso,
+    // esfuerzo, contexto, rápido, thinking), el proceso se relanza con --resume para que lo tome.
+    const c = task.config
+    const signature = JSON.stringify({ model: c.model, mode: c.mode, access: c.access, effort: c.effort, fast: c.fast, context: c.context, thinking: c.thinking })
     if (task.proc && task.procConfig !== signature) {
       task.proc.kill()
       task.proc = null
     }
     if (!task.proc) await this.startClaude(task, signature)
-    const prompt = files.length ? `${text}\n\n${files.map((f) => `@${f}`).join(' ')}` : text
+    const { ultrathink } = claudeTuning(c)
+    const body = ultrathink && !text.startsWith('Ultrathink:') ? `Ultrathink:\n${text}` : text
+    const prompt = files.length ? `${body}\n\n${files.map((f) => `@${f}`).join(' ')}` : body
     task.proc!.stdin.write(JSON.stringify({ type: 'user', message: { role: 'user', content: prompt } }) + '\n')
   }
 
@@ -321,7 +393,10 @@ class TaskManager extends EventEmitter {
     ]
     // Con acceso total no hay nada que aprobar; en el resto, las aprobaciones llegan por stdio.
     if (permission !== 'bypassPermissions') args.push('--permission-prompt-tool', 'stdio')
-    if (task.config.model) args.push('--model', task.config.model)
+    const tuning = claudeTuning(task.config)
+    if (tuning.model) args.push('--model', tuning.model)
+    if (tuning.effort) args.push('--effort', tuning.effort)
+    if (tuning.settings) args.push('--settings', tuning.settings)
     if (task.sessionId) args.push('--resume', task.sessionId)
 
     const proc = spawn(cli.file, args, { cwd: task.cwd, env: { ...process.env, ...agentEnv('claude') }, windowsHide: true })
@@ -563,6 +638,8 @@ class TaskManager extends EventEmitter {
     const sandbox = task.config.mode === 'plan' ? 'read-only' : CODEX_SANDBOX[task.config.access]
     const args = [...cli.prefix, 'exec', '--json', '--skip-git-repo-check', '-s', sandbox, '-C', task.cwd]
     if (task.config.model) args.push('-m', task.config.model)
+    // Nivel de razonamiento de Codex (low … max, según el modelo).
+    if (task.config.effort) args.push('-c', `model_reasoning_effort="${task.config.effort}"`)
     if (task.sessionId) args.push('resume', task.sessionId)
     args.push('-')
     let prompt = (task.config.mode === 'plan' ? PLAN_PREFIX : '') + text
@@ -626,6 +703,8 @@ class TaskManager extends EventEmitter {
     // El mensaje va primero: «-f» admite varios archivos y se tragaría el texto si fuera detrás.
     const args = [...cli.prefix, 'run', text, '--format', 'json']
     if (task.config.model) args.push('-m', task.config.model)
+    // Variante de razonamiento del modelo (low, medium, high, max…).
+    if (task.config.effort) args.push('--variant', task.config.effort)
     if (task.sessionId) args.push('--session', task.sessionId)
     if (task.config.mode === 'plan') args.push('--agent', 'plan')
     for (const f of files) args.push('-f', f)

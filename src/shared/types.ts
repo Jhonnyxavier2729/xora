@@ -15,11 +15,29 @@ export interface TaskConfig {
   model: string
   mode: TaskMode
   access: TaskAccess
+  /** Esfuerzo de razonamiento (los niveles dependen del modelo). Vacío = el que trae el agente. */
+  effort?: string
+  /** Modo rápido (solo algunos modelos de Claude: respuestas más rápidas, más caras). */
+  fast?: boolean
+  /** Ventana de contexto de Claude: '200k' o '1m'. */
+  context?: string
+  /** Interruptor «pensar siempre» (solo Haiku 4.5, que no tiene niveles). */
+  thinking?: boolean
 }
 
 export interface TaskModel {
   id: string
   label: string
+  /** Niveles de esfuerzo/razonamiento que admite este modelo, de menos a más. */
+  efforts?: string[]
+  defaultEffort?: string
+  /** Admite modo rápido. */
+  fast?: boolean
+  /** Ventanas de contexto entre las que se puede elegir, y la que usa por defecto. */
+  contexts?: string[]
+  defaultContext?: string
+  /** En vez de niveles, un único interruptor de «pensar». */
+  thinkingToggle?: boolean
 }
 
 export type TaskModels = Record<TaskProvider, TaskModel[]>
