@@ -111,23 +111,51 @@ function insertDictation(text: string): void {
   app.toast('Texto dictado copiado al portapapeles', 'info')
 }
 
-/** Tiempo mínimo de la pantalla de carga desde que empieza la página: lo que tarda el logo en dibujarse. */
-const BOOT_MIN_MS = 900
+// Pantalla de carga (como Deska): se ve al menos BOOT_HOLD_MS desde que aparece la ventana, se quita solo con el
+// logo completo (la X dibujada y el destello encendido) y sale abriendo un círculo que descubre la app.
+const BOOT_HOLD_MS = 1100
+const BOOT_CYCLE_MS = 1800
+/** Tramo del ciclo en que el logo está completo (el destello está entre el 44 % y el 82 %). */
+const BOOT_REST_FROM = 850
+const BOOT_REST_TO = 1400
+const BOOT_REVEAL_MS = 760
+/** Si la ventana ya estaba a la vista (recarga), no llega el aviso: se sigue tras este tiempo. */
+const BOOT_SHOWN_FALLBACK_MS = 1200
+
+function dismissBoot(): () => void {
+  const boot = document.getElementById('boot')
+  if (!boot) return () => {}
+  let timer = 0
+  let cancelled = false
+  const later = (ms: number, fn: () => void): void => {
+    timer = window.setTimeout(() => !cancelled && fn(), Math.max(0, ms))
+  }
+  const reveal = (): void => {
+    boot.classList.add('boot-reveal')
+    later(BOOT_REVEAL_MS + 40, () => boot.remove())
+  }
+  const atRest = (): void => {
+    const anim = boot.querySelector('.boot-spark')?.getAnimations()[0]
+    const t = Number(anim?.currentTime ?? NaN)
+    if (!Number.isFinite(t)) return reveal()
+    const phase = t % BOOT_CYCLE_MS
+    if (phase >= BOOT_REST_FROM && phase <= BOOT_REST_TO) reveal()
+    else later((phase < BOOT_REST_FROM ? BOOT_REST_FROM : BOOT_CYCLE_MS + BOOT_REST_FROM) - phase, reveal)
+  }
+  const fallback = new Promise<number>((r) => window.setTimeout(() => r(0), BOOT_SHOWN_FALLBACK_MS))
+  void Promise.race([window.api.app.whenShown(), fallback]).then((shownAt) => {
+    if (!cancelled) later(shownAt + BOOT_HOLD_MS - performance.now(), atRest)
+  })
+  return () => {
+    cancelled = true
+    window.clearTimeout(timer)
+  }
+}
 
 export function App() {
   const loaded = useApp((s) => s.loaded)
-  // Al tener los datos, la pantalla de carga se desvanece (tras dejar ver al menos un dibujo del logo).
-  useEffect(() => {
-    if (!loaded) return
-    const boot = document.getElementById('boot')
-    if (!boot) return
-    const wait = Math.max(0, BOOT_MIN_MS - performance.now())
-    const fade = window.setTimeout(() => {
-      boot.classList.add('boot-out')
-      window.setTimeout(() => boot.remove(), 400)
-    }, wait)
-    return () => window.clearTimeout(fade)
-  }, [loaded])
+  // Con los datos cargados, la pantalla de carga se retira (ver dismissBoot).
+  useEffect(() => (loaded ? dismissBoot() : undefined), [loaded])
   const activeId = useApp((s) => s.activeId)
   const workspace = useApp((s) => s.workspaces.find((w) => w.id === s.activeId) ?? null)
   const settingsOpen = useApp((s) => s.settingsOpen)

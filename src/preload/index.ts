@@ -37,6 +37,9 @@ function on<T extends unknown[]>(channel: string, fn: (...args: T) => void): () 
   return () => ipcRenderer.removeListener(channel, listener)
 }
 
+// Se escucha desde el principio: el aviso puede llegar antes de que la app monte nada.
+const shown = new Promise<number>((resolve) => ipcRenderer.once('app:shown', () => resolve(performance.now())))
+
 const api = {
   workspaces: {
     load: (): Promise<Workspace[]> => ipcRenderer.invoke('workspaces:load'),
@@ -188,7 +191,9 @@ const api = {
     platform: process.platform,
     onWarning: (fn: (message: string) => void) => on('app:warning', fn),
     onNotice: (fn: (message: string) => void) => on('app:notice', fn),
-    info: (): Promise<AppInfo> => ipcRenderer.invoke('app:info')
+    info: (): Promise<AppInfo> => ipcRenderer.invoke('app:info'),
+    /** Momento (performance.now) en que la ventana se hizo visible. */
+    whenShown: (): Promise<number> => shown
   }
 }
 

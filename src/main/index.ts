@@ -71,7 +71,11 @@ function createMainWindow(): BrowserWindow {
     lastCrash = Date.now()
     win.reload()
   })
-  win.once('ready-to-show', () => win.show())
+  win.once('ready-to-show', () => {
+    win.show()
+    // La pantalla de carga cuenta su tiempo desde aquí: antes la ventana todavía no se ve.
+    win.webContents.send('app:shown')
+  })
   // Los enlaces externos se abren en el navegador del sistema, nunca en una ventana con preload.
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//.test(url)) shell.openExternal(url)
