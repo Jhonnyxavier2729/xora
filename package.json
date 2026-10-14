@@ -1,6 +1,6 @@
 {
   "name": "xora",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "description": "An infinite, zoomable canvas for working with AI coding agents (Claude Code, Codex, OpenCode), with voice and remote access.",
   "main": "out/main/index.js",
