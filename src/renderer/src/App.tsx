@@ -111,8 +111,23 @@ function insertDictation(text: string): void {
   app.toast('Texto dictado copiado al portapapeles', 'info')
 }
 
+/** Tiempo mínimo de la pantalla de carga desde que empieza la página: lo que tarda el logo en dibujarse. */
+const BOOT_MIN_MS = 900
+
 export function App() {
   const loaded = useApp((s) => s.loaded)
+  // Al tener los datos, la pantalla de carga se desvanece (tras dejar ver al menos un dibujo del logo).
+  useEffect(() => {
+    if (!loaded) return
+    const boot = document.getElementById('boot')
+    if (!boot) return
+    const wait = Math.max(0, BOOT_MIN_MS - performance.now())
+    const fade = window.setTimeout(() => {
+      boot.classList.add('boot-out')
+      window.setTimeout(() => boot.remove(), 400)
+    }, wait)
+    return () => window.clearTimeout(fade)
+  }, [loaded])
   const activeId = useApp((s) => s.activeId)
   const workspace = useApp((s) => s.workspaces.find((w) => w.id === s.activeId) ?? null)
   const settingsOpen = useApp((s) => s.settingsOpen)
@@ -160,7 +175,7 @@ export function App() {
     return () => offs.forEach((off) => off())
   }, [])
 
-  if (!loaded) return <div className="boot">Cargando…</div>
+  if (!loaded) return null
 
   const inCanvas = !!(activeId && workspace)
   return (

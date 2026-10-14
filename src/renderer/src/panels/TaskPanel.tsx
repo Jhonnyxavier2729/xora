@@ -107,6 +107,13 @@ function fitToModel(config: TaskConfig, model: TaskModel | undefined): TaskConfi
   return next
 }
 
+/** Nombre legible mientras llega la lista de modelos: claude-haiku-4-5 → Haiku 4.5. */
+function prettyModel(id: string): string {
+  const m = /^claude-([a-z]+)-(\d+)(?:-(\d))?(?:\[1m\])?$/.exec(id)
+  if (!m) return id
+  return `${m[1][0].toUpperCase()}${m[1].slice(1)} ${m[2]}${m[3] ? `.${m[3]}` : ''}`
+}
+
 function ModelPicker({ config, onChange }: { config: TaskConfig; onChange: (c: TaskConfig) => void }) {
   const [open, setOpen] = useState(false)
   const [models, setModels] = useState<TaskModels | null>(null)
@@ -178,7 +185,7 @@ function ModelPicker({ config, onChange }: { config: TaskConfig; onChange: (c: T
   })
 
   const current = models?.[config.provider]?.find((m) => m.id === config.model)
-  const label = current?.label ?? (config.model || 'Predeterminado')
+  const label = current?.label ?? (config.model ? prettyModel(config.model) : 'Predeterminado')
 
   return (
     <span className="xchip-slot xchip-model" ref={anchorRef}>

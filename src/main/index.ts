@@ -88,8 +88,10 @@ function createMainWindow(): BrowserWindow {
     webPreferences.sandbox = true
     if (!/^https?:\/\/|^about:blank/.test(params.src)) params.src = 'about:blank'
   })
-  if (process.env.ELECTRON_RENDERER_URL) win.loadURL(process.env.ELECTRON_RENDERER_URL)
-  else win.loadFile(join(__dirname, '../renderer/index.html'))
+  // La versión viaja en la URL para que la pantalla de carga la muestre desde el primer fotograma.
+  const query = { appVersion: app.getVersion() }
+  if (process.env.ELECTRON_RENDERER_URL) win.loadURL(`${process.env.ELECTRON_RENDERER_URL}?${new URLSearchParams(query)}`)
+  else win.loadFile(join(__dirname, '../renderer/index.html'), { query })
   win.on('closed', () => {
     mainWindow = null
     setCanvasWindow(null)

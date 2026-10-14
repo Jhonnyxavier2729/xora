@@ -9,6 +9,28 @@ import { PanelFrame } from './PanelFrame'
 
 /** Movimiento mínimo (px) para que un clic se convierta en recuadro o en desplazamiento. */
 const MARQUEE_THRESHOLD = 4
+
+// Inercia del arrastre (los mismos valores que Deska).
+const VELOCITY_SAMPLES = 3
+const VELOCITY_WINDOW_MS = 100
+const INERTIA_MIN_SPEED = 2
+const INERTIA_DECAY_PER_FRAME = 0.95
+const INERTIA_FRAME_MS = 16.67
+const INERTIA_MAX_FRAME_MS = 32
+const INERTIA_STOP_SPEED = 0.5
+const INERTIA_MAX_MS = 500
+
+/** Velocidad al soltar, en píxeles por fotograma de 16,7 ms, a partir de los últimos movimientos recientes. */
+function releaseVelocity(samples: { dx: number; dy: number; t: number }[], now: number): { dx: number; dy: number } | null {
+  const recent = samples.filter((s) => now - s.t < VELOCITY_WINDOW_MS)
+  if (recent.length < 2) return null
+  const elapsed = recent[recent.length - 1].t - recent[0].t
+  if (elapsed <= 0) return null
+  // El primer movimiento marca el inicio del intervalo; cuentan los que llegan después.
+  const k = INERTIA_FRAME_MS / elapsed
+  const tail = recent.slice(1)
+  return { dx: tail.reduce((a, s) => a + s.dx, 0) * k, dy: tail.reduce((a, s) => a + s.dy, 0) * k }
+}
 const MIN_ZOOM = 0.1
 const MAX_ZOOM = 2
 const clampZoom = (z: number) => Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, z))
@@ -190,6 +212,40 @@ export function Canvas({ workspaceId }: { workspaceId: string }) {
 
   const currentVp = useCallback(() => liveVp.current, [])
 
+  // Inercia al soltar el arrastre (como en Deska): la vista sigue con la velocidad de los últimos ~100 ms y frena
+  // un 5 % por fotograma de 16,7 ms, como mucho medio segundo. Se corta con cualquier clic o rueda.
+  const inertiaFrame = useRef(0)
+  const stopInertia = useCallback(() => {
+    if (inertiaFrame.current) cancelAnimationFrame(inertiaFrame.current)
+    inertiaFrame.current = 0
+  }, [])
+  const startInertia = useCallback(
+    (velX: number, velY: number) => {
+      stopInertia()
+      let last = performance.now()
+      const startedAt = last
+      const tick = (): void => {
+        const now = performance.now()
+        const dt = Math.min(now - last, INERTIA_MAX_FRAME_MS)
+        last = now
+        const factor = Math.pow(INERTIA_DECAY_PER_FRAME, dt / INERTIA_FRAME_MS)
+        velX *= factor
+        velY *= factor
+        if ((Math.abs(velX) < INERTIA_STOP_SPEED && Math.abs(velY) < INERTIA_STOP_SPEED) || now - startedAt > INERTIA_MAX_MS) {
+          inertiaFrame.current = 0
+          return
+        }
+        const scale = dt / INERTIA_FRAME_MS
+        const v = liveVp.current
+        moveVp({ ...v, x: v.x + velX * scale, y: v.y + velY * scale })
+        inertiaFrame.current = requestAnimationFrame(tick)
+      }
+      inertiaFrame.current = requestAnimationFrame(tick)
+    },
+    [moveVp, stopInertia]
+  )
+  useEffect(() => stopInertia, [stopInertia])
+
   // Cuando la vista cambia desde otro sitio (centrar un panel, ajustar, minimapa, otro workspace), se refleja.
   useLayoutEffect(() => {
     if (performance.now() > gestureUntil.current) {
@@ -211,6 +267,7 @@ export function Canvas({ workspaceId }: { workspaceId: string }) {
     const el = containerRef.current
     if (!el) return
     const onWheel = (e: WheelEvent) => {
+      stopInertia()
       const current = currentVp()
       const onBackground = (e.target as HTMLElement).classList.contains('canvas-bg')
       if (e.ctrlKey || e.metaKey) {
@@ -228,7 +285,7 @@ export function Canvas({ workspaceId }: { workspaceId: string }) {
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [moveVp, currentVp])
+  }, [moveVp, currentVp, stopInertia])
 
   // Espacio mantenido = modo mano (si el foco no está en un campo de texto o terminal).
   useEffect(() => {
@@ -274,6 +331,9 @@ export function Canvas({ workspaceId }: { workspaceId: string }) {
     const origin = currentVp()
     const start = { x: e.clientX, y: e.clientY, vx: origin.x, vy: origin.y }
     let moved = false
+    // Últimos movimientos (desplazamiento y hora) para calcular la velocidad al soltar.
+    const samples: { dx: number; dy: number; t: number }[] = []
+    let prev = { x: e.clientX, y: e.clientY }
     const move = (ev: PointerEvent) => {
       if (!moved && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < MARQUEE_THRESHOLD) return
       if (!moved) {
@@ -282,11 +342,18 @@ export function Canvas({ workspaceId }: { workspaceId: string }) {
         useApp.getState().setDragging(true)
         document.body.classList.add('canvas-interacting', 'is-panning')
       }
+      samples.push({ dx: ev.clientX - prev.x, dy: ev.clientY - prev.y, t: performance.now() })
+      if (samples.length > VELOCITY_SAMPLES) samples.shift()
+      prev = { x: ev.clientX, y: ev.clientY }
       moveVp({ ...currentVp(), x: start.vx + ev.clientX - start.x, y: start.vy + ev.clientY - start.y })
     }
     const up = () => {
       // Un clic derecho sin arrastrar abre el menú; si hubo arrastre, se suprime.
       if (fromRightButton && moved) suppressMenu.current = true
+      if (moved) {
+        const v = releaseVelocity(samples, performance.now())
+        if (v && Math.hypot(v.dx, v.dy) > INERTIA_MIN_SPEED) startInertia(v.dx, v.dy)
+      }
       setPanning(false)
       useApp.getState().setDragging(false)
       document.body.classList.remove('canvas-interacting', 'is-panning')
@@ -331,6 +398,7 @@ export function Canvas({ workspaceId }: { workspaceId: string }) {
   }
 
   function onPointerDown(e: React.PointerEvent) {
+    stopInertia()
     const onBackground = (e.target as HTMLElement).classList.contains('canvas-bg')
     // Botón central en cualquier sitio; derecho solo sobre el fondo (dentro de un panel es su propio menú).
     if (e.button === 1 || (e.button === 2 && onBackground) || (e.button === 0 && spaceDown)) {

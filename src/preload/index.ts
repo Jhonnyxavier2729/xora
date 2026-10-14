@@ -195,3 +195,14 @@ const api = {
 export type Api = typeof api
 
 contextBridge.exposeInMainWorld('api', api)
+
+// Versión para la pantalla de carga (como Deska): llega en la URL de la ventana y se escribe como variable CSS
+// antes de que se pinte nada, porque el HTML no puede llevar scripts en línea.
+function writeBootVersion(): boolean {
+  const root = document.documentElement
+  if (!root) return false
+  const v = new URLSearchParams(window.location.search).get('appVersion') ?? ''
+  if (/^[0-9A-Za-z.+-]{1,32}$/.test(v)) root.style.setProperty('--boot-version', `"v${v}"`)
+  return true
+}
+if (!writeBootVersion()) document.addEventListener('readystatechange', writeBootVersion, { once: true })
