@@ -243,6 +243,29 @@ function Composer({
   const ref = useRef<HTMLTextAreaElement>(null)
   const slashRef = useOutside<HTMLDivElement>(slash, () => setSlash(false))
 
+  // Dictado en este cuadro (como en Deska): el micrófono pasa a «Escuchando» y «Empezar» a «Detener y empezar».
+  const voice = useApp((s) => s.voice)
+  const voiceMode = useApp((s) => s.voiceMode)
+  const [mine, setMine] = useState(false)
+  const [startAfter, setStartAfter] = useState(false)
+  const latest = useRef({ text: '', files: [] as string[] })
+  latest.current = { text, files }
+  const dictating = mine && voiceMode === 'dictate' && (voice.phase === 'listening' || voice.phase === 'transcribing')
+
+  useEffect(() => {
+    if (voiceMode !== 'dictate') return
+    if (voice.phase === 'listening' && document.activeElement === ref.current) setMine(true)
+    if (voice.phase === 'done' || voice.phase === 'error' || voice.phase === 'idle') {
+      setMine(false)
+      if (startAfter) {
+        setStartAfter(false)
+        // Espera un instante a que el texto dictado llegue al cuadro antes de enviarlo.
+        if (voice.phase === 'done') setTimeout(() => submitLatest(), 80)
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voice.phase, voiceMode])
+
   useEffect(() => {
     const el = ref.current
     if (!el) return
@@ -254,6 +277,14 @@ function Composer({
     const t = text.trim()
     if (!t || (running && config.provider !== 'claude')) return
     onSend(t, files)
+    setText('')
+    setFiles([])
+  }
+
+  function submitLatest() {
+    const { text: t, files: f } = latest.current
+    if (!t.trim() || (running && config.provider !== 'claude')) return
+    onSend(t.trim(), f)
     setText('')
     setFiles([])
   }
@@ -327,18 +358,33 @@ function Composer({
             </div>
           )}
         </div>
-        <button
-          className="tk-icon"
-          title="Dictar en este cuadro"
-          // Sin robar el foco: el texto dictado se escribe donde está el cursor.
-          onMouseDown={(e) => {
-            e.preventDefault()
-            ref.current?.focus()
-          }}
-          onClick={() => window.api.voice.toggle('dictate')}
-        >
-          <IconMic size={15} />
-        </button>
+        {dictating ? (
+          <button
+            className="tk-listening"
+            title="Terminar el dictado"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => window.api.voice.stop(false)}
+          >
+            <span className="tk-listening-stop" />
+            {voice.phase === 'transcribing' ? 'Transcribiendo…' : 'Escuchando'}
+          </button>
+        ) : (
+          <button
+            className="tk-icon"
+            title="Dictar en este cuadro"
+            // Sin robar el foco: el texto dictado se escribe donde está el cursor.
+            onMouseDown={(e) => {
+              e.preventDefault()
+              ref.current?.focus()
+            }}
+            onClick={() => {
+              setMine(true)
+              window.api.voice.toggle('dictate')
+            }}
+          >
+            <IconMic size={15} />
+          </button>
+        )}
         {running && config.provider !== 'claude' ? (
           <button className="tk-start stop" onClick={onStop}>
             ■ Detener
@@ -350,9 +396,23 @@ function Composer({
                 ■
               </button>
             )}
-            <button className="tk-start" disabled={!text.trim()} onClick={submit}>
-              {running ? 'Enviar' : 'Empezar'} ↵
-            </button>
+            {dictating ? (
+              <button
+                className="tk-start compact"
+                title="Termina de dictar y envía lo dictado"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => {
+                  setStartAfter(true)
+                  window.api.voice.stop(false)
+                }}
+              >
+                Parar y {running ? 'enviar' : 'empezar'}
+              </button>
+            ) : (
+              <button className="tk-start" disabled={!text.trim()} onClick={submit}>
+                {running ? 'Enviar' : 'Empezar'} ↵
+              </button>
+            )}
           </>
         )}
       </div>

@@ -401,3 +401,9 @@
   background: var(--accent);
   transition: width 0.3s ease;
 }
+
+/* Botón «Dictar» del dock mientras se dicta */
+.dock-btn.dock-dictating {
+  color: #8fb4ff;
+  background: rgba(79, 140, 255, 0.16);
+}

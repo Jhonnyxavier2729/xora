@@ -144,7 +144,11 @@ export function App() {
         })
         return () => setFocusNotifier(() => {})
       })(),
-      window.api.voice.onState((state, mode) => useApp.getState().setVoice(state, mode)),
+      window.api.voice.onState((state, mode) => {
+        useApp.getState().setVoice(state, mode)
+        // Al dictar no hay tarjeta de Xen: un fallo se avisa con un mensaje.
+        if (mode === 'dictate' && state.phase === 'error') useApp.getState().toast(state.message, 'error')
+      }),
       // El volumen va directo a una variable CSS: 20 veces por segundo sin re-renderizar React.
       window.api.voice.onLevel((level) => {
         document.documentElement.style.setProperty('--voice-level', level.toFixed(3))

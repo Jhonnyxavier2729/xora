@@ -574,7 +574,11 @@ export function BottomDock({ wsId }: { wsId: string | null }) {
   const approvals = waiting.filter((p) => p.needsApproval).length
   const [inbox, setInbox] = useState(false)
   const inboxRef = useOutside<HTMLDivElement>(inbox, () => setInbox(false))
-  const live = voice.phase !== 'idle'
+  const voiceMode = useApp((s) => s.voiceMode)
+  // Dictar no es hablar con Xen: la tarjeta y la cara de Xen solo se transforman al hablar con él.
+  // Al dictar, la señal está en el propio cuadro (etiqueta «Escuchando») y en el brillo de los bordes.
+  const live = voice.phase !== 'idle' && voiceMode !== 'dictate'
+  const dictating = voiceMode === 'dictate' && (voice.phase === 'listening' || voice.phase === 'transcribing')
   const faceMood: XenMood = approvals ? 'attention' : 'idle'
 
   return (
@@ -587,8 +591,12 @@ export function BottomDock({ wsId }: { wsId: string | null }) {
         {!live && (
           <div className="glass pill dock-pill xen-pill">
             <XenAsk />
-            <button className="dock-btn" title="Dictar donde está el cursor" onClick={() => window.api.voice.toggle('dictate')}>
-              <IconMic size={15} /> Dictar
+            <button
+              className={`dock-btn ${dictating ? 'dock-dictating' : ''}`}
+              title={dictating ? 'Terminar el dictado' : 'Dictar donde está el cursor'}
+              onClick={() => (dictating ? window.api.voice.stop(false) : window.api.voice.toggle('dictate'))}
+            >
+              <IconMic size={15} /> {dictating ? (voice.phase === 'transcribing' ? 'Transcribiendo…' : 'Escuchando') : 'Dictar'}
             </button>
             <button className="xen-face-btn" title="Hablar con Xen" onClick={() => window.api.voice.toggle('xen')}>
               <XenFace mood={faceMood} size={42} />
