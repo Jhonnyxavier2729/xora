@@ -85,6 +85,18 @@ export interface Panel {
   task?: TaskConfig
 }
 
+/** Actualización de un agente (Claude Code, Codex u OpenCode). */
+export interface AgentUpdateItem {
+  id: AgentId
+  installed: string | null
+  latest: string | null
+  /** available: hay versión nueva · updating: instalando · done: recién actualizado · error: falló. */
+  status: 'idle' | 'available' | 'updating' | 'done' | 'error'
+  message?: string
+  /** Agentes de este tipo abiertos al terminar: siguen con la versión anterior hasta reiniciarlos. */
+  running: number
+}
+
 /** Estado del actualizador (como Deska: avisar, descargar con progreso y reiniciar). */
 export type UpdateStatus =
   | { state: 'idle'; current: string }
@@ -93,7 +105,7 @@ export type UpdateStatus =
   | { state: 'available'; current: string; version: string; canSelfInstall: boolean }
   | { state: 'downloading'; current: string; version: string; percent: number }
   | { state: 'downloaded'; current: string; version: string }
-  | { state: 'error'; current: string; message: string }
+  | { state: 'error'; current: string; message: string; version?: string }
 
 /** Ventana de uso de una suscripción (sesión de 5 h o semana). */
 export interface UsageWindow {

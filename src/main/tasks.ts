@@ -231,6 +231,8 @@ class TaskManager extends EventEmitter {
       this.tasks.set(panelId, task)
     } else {
       task.title = title
+      // Mientras la tarea es solo un borrador se puede cambiar de carpeta (esta copia o un worktree).
+      if (!task.running && task.items.length === 0 && task.cwd !== cwd) task.cwd = cwd
     }
     return this.snapshot(task)
   }

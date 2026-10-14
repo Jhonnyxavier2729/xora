@@ -42,9 +42,24 @@ function parseCmdShim(cmdPath: string, nodePath: string | null): ResolvedCli | n
   return existsSync(tokens[0]) ? { file: tokens[0], prefix: tokens.slice(1) } : null
 }
 
+/** npm.cmd tiene otro formato que el resto de CLIs: se lanza su script (npm-cli.js) directamente con Node. */
+async function resolveNpmOnWindows(hits: string[]): Promise<ResolvedCli | null> {
+  const cmd = hits.find((h) => /\.cmd$/i.test(h))
+  if (!cmd) return null
+  const dir = dirname(cmd)
+  const script = join(dir, 'node_modules', 'npm', 'bin', 'npm-cli.js')
+  const node = existsSync(join(dir, 'node.exe')) ? join(dir, 'node.exe') : (await where('node')).find((h) => /\.exe$/i.test(h))
+  return node && existsSync(script) ? { file: node, prefix: [script] } : null
+}
+
 export async function resolveCli(name: string): Promise<ResolvedCli | null> {
   if (cache.has(name)) return cache.get(name)!
   const hits = await where(name)
+  if (name === 'npm' && process.platform === 'win32') {
+    const npm = await resolveNpmOnWindows(hits)
+    cache.set(name, npm)
+    return npm
+  }
   let resolved: ResolvedCli | null = null
   const exe = hits.find((h) => /\.exe$/i.test(h))
   if (process.platform !== 'win32' && hits[0]) resolved = { file: hits[0], prefix: [] }

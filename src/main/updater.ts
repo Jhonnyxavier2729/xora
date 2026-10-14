@@ -15,6 +15,8 @@ const FIRST_CHECK_MS = 8_000
 
 let status: UpdateStatus = { state: 'idle', current: app.getVersion() }
 let manualCheck = false
+/** Última versión nueva vista: si la descarga falla, la tarjeta sigue mostrándola con Reintentar. */
+let lastVersion: string | null = null
 
 const canSelfInstall = (): boolean => process.platform !== 'darwin'
 const enabled = (): boolean => app.isPackaged && !process.env.XORA_NO_UPDATES
@@ -43,13 +45,14 @@ export function registerUpdater(): void {
   ipcMain.handle('update:getStatus', () => status)
   ipcMain.on('update:check', () => void check(true))
   ipcMain.on('update:download', () => {
-    if (status.state !== 'available') return
+    const version = status.state === 'available' ? status.version : status.state === 'error' ? lastVersion : null
+    if (!version) return
     if (!canSelfInstall()) {
-      void shell.openExternal(`${RELEASES}/tag/v${status.version}`)
+      void shell.openExternal(`${RELEASES}/tag/v${version}`)
       return
     }
-    broadcast({ state: 'downloading', version: status.version, percent: 0 })
-    autoUpdater.downloadUpdate().catch((err: Error) => broadcast({ state: 'error', message: err.message }))
+    broadcast({ state: 'downloading', version, percent: 0 })
+    autoUpdater.downloadUpdate().catch((err: Error) => broadcast({ state: 'error', message: err.message, ...(lastVersion ? { version: lastVersion } : {}) }))
   })
   ipcMain.on('update:install', () => {
     if (status.state === 'downloaded') autoUpdater.quitAndInstall(false, true)
@@ -66,6 +69,7 @@ export function registerUpdater(): void {
     if (manualCheck) broadcast({ state: 'checking' })
   })
   autoUpdater.on('update-available', (info) => {
+    lastVersion = String(info.version)
     broadcast({ state: 'available', version: String(info.version), canSelfInstall: canSelfInstall() })
   })
   autoUpdater.on('update-not-available', () => {
@@ -79,7 +83,7 @@ export function registerUpdater(): void {
   autoUpdater.on('error', (err) => {
     console.error('[updater]', err.message)
     // Un fallo al comprobar en segundo plano no molesta; uno pedido a mano sí se muestra.
-    if (manualCheck || status.state === 'downloading') broadcast({ state: 'error', message: err.message })
+    if (manualCheck || status.state === 'downloading') broadcast({ state: 'error', message: err.message, ...(lastVersion ? { version: lastVersion } : {}) })
     manualCheck = false
   })
 

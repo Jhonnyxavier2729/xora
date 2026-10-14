@@ -138,7 +138,7 @@ export function GitPanel({ wsId, wsRoot, panel }: { wsId: string; wsRoot: string
       useApp.getState().addPanel(wsId, { type: 'agent', agent: newAgent, cwd: wt.path, worktreeBranch: wt.branch })
       setNewBranch('')
       setCwd(wt.path)
-      toast(`Worktree «${wt.branch}» creado con su agente`)
+      toast(wt.reused ? `Worktree «${wt.branch}» reutilizado: sigue como lo dejaste` : `Worktree «${wt.branch}» creado con su agente`)
       await refresh()
     } catch (err) {
       toast(errMsg(err), 'error')
@@ -148,13 +148,16 @@ export function GitPanel({ wsId, wsRoot, panel }: { wsId: string; wsRoot: string
   }
 
   async function removeWorktree(wt: Worktree) {
-    if (!confirm(`¿Eliminar el worktree ${wt.branch}? La rama se conserva.`)) return
+    // Antes de borrar se mira qué se perdería, como hace Deska.
+    const info = await window.api.git.inspectWorktree(wsRoot, wt.path).catch(() => null)
+    const parts: string[] = []
+    if (info?.changed) parts.push(`${info.changed} archivo${info.changed === 1 ? '' : 's'} con cambios sin guardar (se perderán)`)
+    if (info?.unmerged) parts.push(`${info.unmerged} commit${info.unmerged === 1 ? '' : 's'} que aún no están en ${info.base}`)
+    const detail = parts.length ? `\n\nTiene ${parts.join(' y ')}.` : ''
+    if (!confirm(`¿Eliminar el worktree ${wt.branch}? La rama se conserva.${detail}`)) return
     try {
-      await window.api.git.removeWorktree(wsRoot, wt.path, false).catch(async (err) => {
-        if (confirm(`${errMsg(err)}\n\n¿Forzar la eliminación (se pierden los cambios sin commit)?`)) {
-          await window.api.git.removeWorktree(wsRoot, wt.path, true)
-        } else throw err
-      })
+      // Con cambios sin guardar el usuario ya lo confirmó arriba: se fuerza.
+      await window.api.git.removeWorktree(wsRoot, wt.path, !!info?.changed)
       if (cwd === wt.path) setCwd(wsRoot)
       await refresh()
     } catch (err) {

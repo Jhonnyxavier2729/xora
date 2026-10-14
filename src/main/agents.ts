@@ -19,6 +19,11 @@ export async function detectAgents(force = false): Promise<Record<AgentId, boole
   return value
 }
 
+/** Tras actualizar un agente, la detección se vuelve a hacer. */
+export function resetAgentCache(): void {
+  cache = null
+}
+
 export async function hasCloudflared(): Promise<boolean> {
   return !!(await resolveCli('cloudflared'))
 }

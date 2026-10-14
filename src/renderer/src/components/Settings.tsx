@@ -537,7 +537,14 @@ function AgentsSection() {
               }
             >
               {v.updateCommand && (outdated || !v.installed) && (
-                <button className="btn small" onClick={() => runUpdate(v.updateCommand!)}>
+                <button
+                  className="btn small"
+                  onClick={() => {
+                    // Con el agente instalado se actualiza dentro de Xora (el progreso sale en el Centro de actualizaciones).
+                    if (v.installed && v.id !== 'custom') void window.api.agentUpdates.run(v.id).then(load)
+                    else runUpdate(v.updateCommand!)
+                  }}
+                >
                   {v.installed ? 'Actualizar' : 'Instalar'}
                 </button>
               )}

@@ -8,6 +8,7 @@ import { ptys } from './pty'
 import { broadcastState, disableRemote, remoteState, setRemoteChangeListener } from './remote'
 import { flushStore, store } from './store'
 import { registerUpdater } from './updater'
+import { startAgentUpdateChecks } from './agent-updates'
 import { createPillWindow, startHotkeys, stopHotkeys } from './voice'
 import { handleAssetScheme, registerAssetScheme } from './wallpaper'
 
@@ -170,6 +171,7 @@ app.whenReady().then(async () => {
 
   registerIpc()
   registerUpdater()
+  startAgentUpdateChecks()
   try {
     // Corrige en español e inglés (Windows y Linux; en macOS lo decide el sistema).
     session.defaultSession.setSpellCheckerLanguages(['es', 'en-US'])

@@ -3,7 +3,9 @@ import { existsSync, statSync } from 'node:fs'
 import { userInfo } from 'node:os'
 import { basename, resolve, sep } from 'node:path'
 import {
+  AGENTS,
   SECRET_NAMES,
+  type AgentId,
   type AppInfo,
   type EnsurePtyOptions,
   type SecretName,
@@ -18,6 +20,7 @@ import { agentVersions, detectAgents, hasCloudflared } from './agents'
 import { taskModels, tasks } from './tasks'
 import { getCanvasWindow, resolveCanvasRequest, resolveConfirm } from './canvas'
 import { synthesize } from './tts'
+import { checkAgentUpdates, currentUpdates, dismissAgentUpdate, updateAgent } from './agent-updates'
 import { usageReport } from './usage'
 import {
   blankCanvasFolder,
@@ -106,6 +109,13 @@ export function registerIpc(): void {
   ipcMain.handle('xen:providers', () => providerStatuses())
   ipcMain.on('xen:confirmResult', (_e, requestId: string, ok: boolean) => resolveConfirm(requestId, ok))
   ipcMain.handle('agents:versions', () => agentVersions())
+  ipcMain.handle('agentUpdates:get', () => currentUpdates())
+  ipcMain.handle('agentUpdates:check', () => checkAgentUpdates())
+  ipcMain.handle('agentUpdates:run', (_e, id: AgentId) => {
+    if (!AGENTS.some((a) => a.id === id && a.id !== 'custom')) throw new Error('Agente desconocido')
+    return updateAgent(id)
+  })
+  ipcMain.on('agentUpdates:dismiss', (_e, id: AgentId) => dismissAgentUpdate(id))
   ipcMain.handle(
     'app:info',
     (): AppInfo => ({
@@ -144,6 +154,7 @@ export function registerIpc(): void {
   ipcMain.handle('git:commit', (_e, cwd: string, message: string, files?: string[]) => git.commit(cwd, message, files))
   ipcMain.handle('git:discard', (_e, cwd: string, file: string) => git.discard(cwd, file))
   ipcMain.handle('git:worktrees', (_e, cwd: string) => git.listWorktrees(cwd))
+  ipcMain.handle('git:inspectWorktree', (_e, root: string, path: string) => git.inspectWorktree(root, path))
   ipcMain.handle('git:createWorktree', (_e, root: string, branch: string) => git.createWorktree(root, branch))
   ipcMain.handle('git:removeWorktree', (_e, root: string, path: string, force: boolean) =>
     git.removeWorktree(root, path, force)

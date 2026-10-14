@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import type {
   AccountStatus,
+  AgentUpdateItem,
   TaskConfig,
   TaskEvent,
   TaskModels,
@@ -110,8 +111,10 @@ const api = {
       ipcRenderer.invoke('git:commit', cwd, message, files),
     discard: (cwd: string, file: string): Promise<void> => ipcRenderer.invoke('git:discard', cwd, file),
     worktrees: (cwd: string): Promise<Worktree[]> => ipcRenderer.invoke('git:worktrees', cwd),
-    createWorktree: (root: string, branch: string): Promise<Worktree> =>
+    createWorktree: (root: string, branch: string): Promise<Worktree & { reused: boolean }> =>
       ipcRenderer.invoke('git:createWorktree', root, branch),
+    inspectWorktree: (root: string, path: string): Promise<{ changed: number; unmerged: number; base: string | null }> =>
+      ipcRenderer.invoke('git:inspectWorktree', root, path),
     removeWorktree: (root: string, path: string, force: boolean): Promise<void> =>
       ipcRenderer.invoke('git:removeWorktree', root, path, force)
   },
@@ -166,6 +169,13 @@ const api = {
     install: () => ipcRenderer.send('update:install'),
     openRelease: () => ipcRenderer.send('update:openRelease'),
     onStatus: (fn: (s: UpdateStatus) => void) => on('update:status', fn)
+  },
+  agentUpdates: {
+    get: (): Promise<AgentUpdateItem[]> => ipcRenderer.invoke('agentUpdates:get'),
+    check: (): Promise<AgentUpdateItem[]> => ipcRenderer.invoke('agentUpdates:check'),
+    run: (id: AgentId): Promise<AgentUpdateItem[]> => ipcRenderer.invoke('agentUpdates:run', id),
+    dismiss: (id: AgentId) => ipcRenderer.send('agentUpdates:dismiss', id),
+    onState: (fn: (items: AgentUpdateItem[]) => void) => on('agentUpdates:state', fn)
   },
   usage: {
     report: (force?: boolean): Promise<UsageReport> => ipcRenderer.invoke('usage:report', force)

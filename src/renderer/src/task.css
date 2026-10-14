@@ -516,3 +516,43 @@
     opacity: 0.35;
   }
 }
+
+/* Selector «Esta copia» / worktree de una tarea nueva */
+.tk-cwd {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.tk-checkout .tk-chip {
+  height: 24px;
+  font-size: 11.5px;
+}
+
+.tk-checkout-menu {
+  left: 0;
+  bottom: calc(100% + 6px);
+  top: auto;
+  min-width: 290px;
+}
+
+.tk-checkout-menu .menu-item.active {
+  color: var(--accent);
+}
+
+.tk-checkout-new {
+  display: flex;
+  gap: 6px;
+  padding: 4px 8px;
+}
+
+.tk-checkout-new input {
+  flex: 1;
+  min-width: 0;
+}
+
+.tk-checkout-note {
+  margin: 6px 8px 4px;
+  line-height: 1.4;
+}

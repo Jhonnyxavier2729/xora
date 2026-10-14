@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import type { Panel, TaskAccess, TaskConfig, TaskItem, TaskModels, TaskProvider } from '@shared/types'
+import type { Panel, TaskAccess, TaskConfig, TaskItem, TaskModels, TaskProvider, Worktree } from '@shared/types'
 import { IconMic } from '../components/Icons'
 import { useApp } from '../state'
 import { errMsg } from '../utils'
@@ -512,6 +512,97 @@ function Item({ item, panelId }: { item: TaskItem; panelId: string }) {
 // ---------------------------------------------------------------------------
 // Panel
 
+const norm = (p: string): string => p.replace(/[\\/]+$/, '').replace(/\\/g, '/').toLowerCase()
+
+/**
+ * «Esta copia» (como el «This checkout» de Deska): dónde trabaja la tarea. La carpeta del proyecto, un
+ * worktree que ya tengas o uno nuevo con su propia rama, para que varias tareas no se pisen.
+ * Solo se ve en un repositorio de Git y mientras la tarea es un borrador.
+ */
+function CheckoutPicker({ wsId, panel }: { wsId: string; panel: Panel }) {
+  const root = useApp((s) => s.workspaces.find((w) => w.id === wsId)?.root ?? '')
+  const [trees, setTrees] = useState<Worktree[] | null>(null)
+  const [open, setOpen] = useState(false)
+  const [naming, setNaming] = useState(false)
+  const [name, setName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const ref = useOutside<HTMLDivElement>(open, () => setOpen(false))
+
+  const load = () => window.api.git.worktrees(root).then(setTrees, () => setTrees(null))
+  useEffect(() => {
+    if (root) void load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [root])
+  if (!root || !trees || !trees.length) return null
+
+  const here = trees.find((w) => norm(w.path) === norm(panel.cwd ?? root)) ?? trees[0]
+  const choose = (path: string, branch: string, isMain: boolean) => {
+    useApp.getState().updatePanel(wsId, panel.id, { cwd: path, worktreeBranch: isMain ? undefined : branch })
+    setOpen(false)
+    setNaming(false)
+  }
+
+  async function create() {
+    const branch = name.trim()
+    if (!branch) return
+    setBusy(true)
+    try {
+      const wt = await window.api.git.createWorktree(root, branch)
+      choose(wt.path, wt.branch, false)
+      if (wt.reused) useApp.getState().toast(`Worktree «${wt.branch}» reutilizado: sigue como lo dejaste`)
+      setName('')
+      void load()
+    } catch (err) {
+      useApp.getState().toast(errMsg(err), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="menu-anchor tk-checkout" ref={ref}>
+      <button className="tk-chip plain" title="Dónde trabaja esta tarea" onClick={() => setOpen(!open)}>
+        ⎇ {here.main ? 'Esta copia' : 'Worktree'} · {here.branch} ▾
+      </button>
+      {open && (
+        <div className="menu menu-up tk-checkout-menu">
+          <div className="menu-title">Dónde trabaja la tarea</div>
+          {trees.map((w) => (
+            <button key={w.path} className={`menu-item ${w === here ? 'active' : ''}`} onClick={() => choose(w.path, w.branch, w.main)}>
+              <span className="grow">
+                {w.main ? 'Esta copia' : 'Worktree'} · {w.branch}
+              </span>
+              {w === here && <span>✓</span>}
+            </button>
+          ))}
+          {naming ? (
+            <div className="tk-checkout-new">
+              <input
+                autoFocus
+                value={name}
+                placeholder="rama-nueva, p. ej. feature/login"
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') void create()
+                  if (e.key === 'Escape') setNaming(false)
+                }}
+              />
+              <button className="btn small primary" disabled={busy || !name.trim()} onClick={() => void create()}>
+                Crear
+              </button>
+            </div>
+          ) : (
+            <button className="menu-item" onClick={() => (setNaming(true), setName(`tarea-${panel.id.slice(0, 4)}`))}>
+              ＋ Nuevo worktree…
+            </button>
+          )}
+          <p className="muted small tk-checkout-note">Un worktree es una copia aparte con su propia rama: la tarea no toca tus archivos de aquí.</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function TaskPanel({ wsId, panel }: { wsId: string; panel: Panel }) {
   const defaults = useApp((s) => s.settings?.taskDefaults)
   const config: TaskConfig = panel.task ?? defaults ?? { provider: 'claude', model: '', mode: 'build', access: 'full-access' }
@@ -553,7 +644,7 @@ export function TaskPanel({ wsId, panel }: { wsId: string; panel: Panel }) {
       off()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [panel.id])
+  }, [panel.id, cwd])
 
   // Mantener el scroll abajo mientras llega texto, salvo que el usuario haya subido.
   useEffect(() => {
@@ -599,7 +690,8 @@ export function TaskPanel({ wsId, panel }: { wsId: string; panel: Panel }) {
             </div>
           )}
           <div className="tk-cwd muted small" title={cwd}>
-            📁 {cwd.split(/[\\/]/).slice(-2).join('/')}
+            <span>📁 {cwd.split(/[\\/]/).slice(-2).join('/')}</span>
+            <CheckoutPicker wsId={wsId} panel={panel} />
           </div>
           <Composer config={config} onConfig={setConfig} running={running} cwd={cwd} onSend={send} onStop={() => void window.api.task.stop(panel.id)} onNewDraft={newDraft} big />
         </div>
