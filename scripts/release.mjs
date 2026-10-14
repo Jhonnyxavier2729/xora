@@ -64,15 +64,17 @@ try {
 } catch {
   run(`gh release create v${version} --verify-tag --title "Xora ${version}" --notes "${notes}"`)
 }
-for (let attempt = 1; ; attempt++) {
-  try {
-    run(`gh release upload v${version} ${files.map((f) => `"${f}"`).join(' ')} --clobber`)
-    break
-  } catch (err) {
-    if (attempt >= 3) throw err
-    console.log(`
-⚠ La subida falló (intento ${attempt}/3). Reintentando…
-`)
+// latest.yml va al final y solo cuando el instalador ya está: es lo que lee Xora para enterarse de la
+// versión nueva, y si saliera antes, las apps verían la actualización sin poder descargarla.
+for (const group of [files.slice(0, 2), files.slice(2)]) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      run(`gh release upload v${version} ${group.map((f) => `"${f}"`).join(' ')} --clobber`)
+      break
+    } catch (err) {
+      if (attempt >= 3) throw err
+      console.log(`\n⚠ La subida falló (intento ${attempt}/3). Reintentando…\n`)
+    }
   }
 }
 
