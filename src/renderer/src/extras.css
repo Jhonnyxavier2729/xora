@@ -407,3 +407,61 @@
   color: #8fb4ff;
   background: rgba(79, 140, 255, 0.16);
 }
+
+/* Menú «?» de ayuda */
+.help-btn {
+  font-weight: 700;
+  font-size: 14px;
+}
+
+.help-menu {
+  right: 0;
+  left: auto;
+  min-width: 230px;
+}
+
+/* Pantalla de recuperación */
+.crash {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: #0b0d12;
+  color: #e6ebf5;
+  z-index: 99999;
+}
+
+.crash-card {
+  width: min(520px, 90vw);
+  padding: 28px;
+  border-radius: 16px;
+  background: #151923;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.crash-card h2 {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+
+.crash-card p {
+  margin: 0 0 12px;
+  color: #98a2b8;
+  line-height: 1.5;
+}
+
+.crash-card pre {
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.3);
+  font-size: 11.5px;
+  white-space: pre-wrap;
+  max-height: 140px;
+  overflow: auto;
+}
+
+.crash-actions {
+  display: flex;
+  gap: 8px;
+}

@@ -183,11 +183,60 @@ export function TopBar({ workspace }: { workspace: Workspace | null }) {
           <span>Acceso móvil</span>
           <span className={`remote-state ${remote?.enabled ? 'on' : ''}`}>{remoteLabel}</span>
         </button>
+        <HelpMenu />
         <button className="icon-btn" title="Ajustes" onClick={() => useApp.getState().openSettings()}>
           <IconSettings />
         </button>
         <InboxBell count={attention} />
       </div>
+    </div>
+  )
+}
+
+const REPO = 'https://github.com/Jhonnyxavier2729/xora'
+
+/** «?» junto a Ajustes: atajos, ayuda, reportar un problema y novedades. */
+function HelpMenu() {
+  const [open, setOpen] = useState(false)
+  const ref = useOutside<HTMLDivElement>(open, () => setOpen(false))
+  const go = (fn: () => void) => () => {
+    setOpen(false)
+    fn()
+  }
+  const link = (url: string) => () => void window.api.shell.openExternal(url)
+  return (
+    <div className="menu-anchor" ref={ref}>
+      <button className="icon-btn help-btn" title="Ayuda" onClick={() => setOpen(!open)}>
+        ?
+      </button>
+      {open && (
+        <div className="menu menu-right help-menu">
+          <button className="menu-item" onClick={go(() => useApp.getState().openSettings('shortcuts'))}>
+            ⌨ Atajos de teclado
+          </button>
+          <button className="menu-item" onClick={go(() => useApp.getState().openSettings('help'))}>
+            ? Cómo se usa Xora
+          </button>
+          <button className="menu-item" onClick={go(link(`${REPO}#readme`))}>
+            📖 Documentación
+          </button>
+          <button className="menu-item" onClick={go(link(`${REPO}/issues/new`))}>
+            🐞 Reportar un problema
+          </button>
+          <button className="menu-item" onClick={go(link(`${REPO}/releases`))}>
+            ✨ Novedades
+          </button>
+          <button
+            className="menu-item"
+            onClick={go(() => {
+              window.api.update.check()
+              useApp.getState().openSettings('diagnostics')
+            })}
+          >
+            ⟳ Buscar actualizaciones
+          </button>
+        </div>
+      )}
     </div>
   )
 }

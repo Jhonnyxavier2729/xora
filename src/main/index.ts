@@ -42,8 +42,33 @@ function createMainWindow(): BrowserWindow {
       nodeIntegration: false,
       sandbox: true,
       webviewTag: true,
-      spellcheck: false
+      spellcheck: true
     }
+  })
+  // Clic derecho en una palabra mal escrita: sugerencias y «Añadir al diccionario».
+  win.webContents.on('context-menu', (_e, params) => {
+    if (!params.misspelledWord) return
+    const items: Electron.MenuItemConstructorOptions[] = params.dictionarySuggestions.slice(0, 6).map((suggestion) => ({
+      label: suggestion,
+      click: () => win.webContents.replaceMisspelling(suggestion)
+    }))
+    if (!items.length) items.push({ label: 'Sin sugerencias', enabled: false })
+    items.push(
+      { type: 'separator' },
+      { label: 'Añadir al diccionario', click: () => win.webContents.session.addWordToSpellCheckerDictionary(params.misspelledWord) },
+      { type: 'separator' },
+      { role: 'cut', label: 'Cortar', enabled: params.editFlags.canCut },
+      { role: 'copy', label: 'Copiar', enabled: params.editFlags.canCopy },
+      { role: 'paste', label: 'Pegar', enabled: params.editFlags.canPaste }
+    )
+    Menu.buildFromTemplate(items).popup({ window: win })
+  })
+  // Si el proceso de la ventana se cae, se vuelve a abrir en vez de dejar la pantalla en blanco.
+  let lastCrash = 0
+  win.webContents.on('render-process-gone', () => {
+    if (Date.now() - lastCrash < 10_000) return
+    lastCrash = Date.now()
+    win.reload()
   })
   win.once('ready-to-show', () => win.show())
   // Los enlaces externos se abren en el navegador del sistema, nunca en una ventana con preload.
@@ -145,6 +170,12 @@ app.whenReady().then(async () => {
 
   registerIpc()
   registerUpdater()
+  try {
+    // Corrige en español e inglés (Windows y Linux; en macOS lo decide el sistema).
+    session.defaultSession.setSpellCheckerLanguages(['es', 'en-US'])
+  } catch {
+    // Diccionario no disponible: se usa el del sistema.
+  }
   wirePtyEvents()
   setRemoteChangeListener(async () => send('remote:changed', await remoteState()))
   ptys.on('status', () => broadcastState())

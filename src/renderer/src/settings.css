@@ -749,3 +749,20 @@
 .xc-actions {
   justify-content: flex-end;
 }
+
+/* Correos difuminados hasta hacer clic */
+.blur-email {
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  filter: blur(5px);
+  transition: filter 0.15s ease;
+}
+
+.blur-email.shown,
+.blur-email:focus-visible {
+  filter: none;
+}

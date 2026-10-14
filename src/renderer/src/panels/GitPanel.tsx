@@ -48,11 +48,11 @@ export function GitPanel({ wsId, wsRoot, panel }: { wsId: string; wsRoot: string
 
   const toast = useApp.getState().toast
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (withWorktrees = true) => {
     try {
       const s = await window.api.git.status(cwd)
       setStatus(s)
-      if (s.isRepo) setWorktrees(await window.api.git.worktrees(wsRoot).catch(() => []))
+      if (s.isRepo && withWorktrees) setWorktrees(await window.api.git.worktrees(wsRoot).catch(() => []))
     } catch (err) {
       toast(errMsg(err), 'error')
     }
@@ -61,8 +61,20 @@ export function GitPanel({ wsId, wsRoot, panel }: { wsId: string; wsRoot: string
   const refreshSeconds = useApp((s) => s.settings?.gitRefreshSeconds ?? 5)
   useEffect(() => {
     void refresh()
-    const t = setInterval(() => void refresh(), refreshSeconds * 1000)
-    return () => clearInterval(t)
+    let ticks = 0
+    // Con Xora minimizada o en segundo plano no se lanza ningún proceso de git; la lista de worktrees
+    // (que casi no cambia) se pide una de cada diez veces.
+    const t = setInterval(() => {
+      if (document.hidden || !document.hasFocus()) return
+      ticks++
+      void refresh(ticks % 10 === 0)
+    }, refreshSeconds * 1000)
+    const onFocus = (): void => void refresh(false)
+    window.addEventListener('focus', onFocus)
+    return () => {
+      clearInterval(t)
+      window.removeEventListener('focus', onFocus)
+    }
   }, [refresh, refreshSeconds])
 
   useEffect(() => {

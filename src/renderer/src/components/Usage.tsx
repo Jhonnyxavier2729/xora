@@ -23,9 +23,11 @@ const PROBLEM: Record<NonNullable<AgentUsage['problem']>, string> = {
 
 const left = (w: UsageWindow): number => 100 - w.usedPercent
 
-/** Lo que más limita: el menor porcentaje restante entre sesión y semana. */
-function tightest(u: AgentUsage): number | null {
-  return u.windows.length ? Math.min(...u.windows.map(left)) : null
+/** Lo que más limita: la ventana (sesión o semana) con menos porcentaje restante. */
+function tightest(u: AgentUsage): { percent: number; kind: UsageWindow['kind'] } | null {
+  if (!u.windows.length) return null
+  const w = u.windows.reduce((a, b) => (left(b) < left(a) ? b : a))
+  return { percent: left(w), kind: w.kind }
 }
 
 function resetText(at: number | null): string {
@@ -101,14 +103,14 @@ export function UsageChip() {
     <div className="usage menu-anchor" ref={ref}>
       <button className="usage-chip glass" title="Uso que te queda" onClick={() => setOpen(!open)}>
         {shown.map((a) => {
-          const p = tightest(report[a.key])
+          const t = tightest(report[a.key])
           return (
-            <span key={a.key} className="usage-mini">
+            <span key={a.key} className="usage-mini" title={t ? `${a.name}: te queda ${t.percent} % de la ${t.kind === 'week' ? 'semana' : 'sesión'}` : a.name}>
               <span className="usage-glyph">{a.glyph}</span>
               <span className="usage-track">
-                <span className={`usage-fill ${p === null ? '' : tone(p)}`} style={{ width: `${p ?? 0}%` }} />
+                <span className={`usage-fill ${t === null ? '' : tone(t.percent)}`} style={{ width: `${t?.percent ?? 0}%` }} />
               </span>
-              <span>{p === null ? '—' : `${p}%`}</span>
+              <span>{t === null ? '—' : `${t.kind === 'week' ? 'Sem' : 'Ses'} ${t.percent}%`}</span>
             </span>
           )
         })}

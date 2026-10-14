@@ -142,7 +142,16 @@ export const useApp = create<AppState>((set, get) => ({
       window.api.settings.get(),
       window.api.remote.state()
     ])
-    set({ workspaces, ptys: Object.fromEntries(ptyList.map((p) => [p.id, p])), settings, remote, loaded: true })
+    // Se reabre en el workspace donde estabas, si sigue existiendo.
+    const last = workspaces.find((w) => w.id === settings.lastWorkspaceId)
+    set({
+      workspaces,
+      ptys: Object.fromEntries(ptyList.map((p) => [p.id, p])),
+      settings,
+      remote,
+      loaded: true,
+      ...(last ? { activeId: last.id } : {})
+    })
   },
 
   async updateSettings(patch) {
@@ -185,6 +194,7 @@ export const useApp = create<AppState>((set, get) => ({
 
   openWorkspace(id) {
     set({ activeId: id, focusedPanelId: null, selected: [] })
+    if (get().loaded) void window.api.settings.set({ lastWorkspaceId: id ?? '' })
     const ws = id ? get().workspaces.find((w) => w.id === id) : null
     if (ws) void window.api.workspaces.touch(ws.root)
   },

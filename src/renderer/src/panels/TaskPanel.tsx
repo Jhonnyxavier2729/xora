@@ -63,6 +63,12 @@ const loadModels = (force = false) => {
   return modelsCache
 }
 
+// Las listas de modelos se renuevan solas mientras Xora está abierta: si un agente se actualiza y trae
+// modelos nuevos, aparecen sin reiniciar.
+setInterval(() => {
+  if (!document.hidden) void loadModels(true)
+}, 15 * 60_000)
+
 function useOutside<T extends HTMLElement>(open: boolean, close: () => void) {
   const ref = useRef<T>(null)
   useEffect(() => {
@@ -84,9 +90,10 @@ function ModelPicker({ config, onChange }: { config: TaskConfig; onChange: (c: T
   const [query, setQuery] = useState('')
   const ref = useOutside<HTMLDivElement>(open, () => setOpen(false))
 
+  // Al abrir el selector se toma la lista más reciente (la renovación periódica ya la dejó al día).
   useEffect(() => {
     void loadModels().then(setModels)
-  }, [])
+  }, [open])
   useEffect(() => setTab(config.provider), [config.provider, open])
 
   const list = useMemo(() => {
@@ -227,6 +234,7 @@ function Composer({
   cwd,
   onSend,
   onStop,
+  onNewDraft,
   big
 }: {
   config: TaskConfig
@@ -235,6 +243,8 @@ function Composer({
   cwd: string
   onSend: (text: string, files: string[]) => void
   onStop: () => void
+  /** Ctrl/Cmd+Enter: abre otro borrador de tarea con el mismo agente, modelo y ajustes. */
+  onNewDraft: () => void
   big: boolean
 }) {
   const [text, setText] = useState('')
@@ -308,6 +318,11 @@ function Composer({
         placeholder={running ? 'Escribe para añadir instrucciones…' : 'Describe la tarea. Enter para empezar, Shift+Enter para una línea nueva.'}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => {
+          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+            e.preventDefault()
+            onNewDraft()
+            return
+          }
           if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault()
             submit()
@@ -552,6 +567,11 @@ export function TaskPanel({ wsId, panel }: { wsId: string; panel: Panel }) {
     void window.api.settings.set({ taskDefaults: next }).then((s) => useApp.getState().setSettings(s))
   }
 
+  function newDraft() {
+    const id = useApp.getState().addPanel(wsId, { type: 'task', task: config })
+    useApp.getState().reveal(id)
+  }
+
   async function send(text: string, files: string[]) {
     if (!items.some((i) => i.kind === 'user')) {
       const title = text.split('\n')[0].slice(0, 50)
@@ -581,7 +601,7 @@ export function TaskPanel({ wsId, panel }: { wsId: string; panel: Panel }) {
           <div className="tk-cwd muted small" title={cwd}>
             📁 {cwd.split(/[\\/]/).slice(-2).join('/')}
           </div>
-          <Composer config={config} onConfig={setConfig} running={running} cwd={cwd} onSend={send} onStop={() => void window.api.task.stop(panel.id)} big />
+          <Composer config={config} onConfig={setConfig} running={running} cwd={cwd} onSend={send} onStop={() => void window.api.task.stop(panel.id)} onNewDraft={newDraft} big />
         </div>
       ) : (
         <>
@@ -602,7 +622,7 @@ export function TaskPanel({ wsId, panel }: { wsId: string; panel: Panel }) {
               </div>
             )}
           </div>
-          <Composer config={config} onConfig={setConfig} running={running} cwd={cwd} onSend={send} onStop={() => void window.api.task.stop(panel.id)} big={false} />
+          <Composer config={config} onConfig={setConfig} running={running} cwd={cwd} onSend={send} onStop={() => void window.api.task.stop(panel.id)} onNewDraft={newDraft} big={false} />
         </>
       )}
     </div>

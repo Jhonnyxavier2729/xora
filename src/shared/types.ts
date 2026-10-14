@@ -237,6 +237,8 @@ export interface Settings {
   /** Atajo global alternativo para alternar la grabación. */
   toggleShortcut: string
   speakReplies: boolean
+  /** Último workspace abierto: Xora se reabre ahí. */
+  lastWorkspaceId: string
   /** Motor de voz para las respuestas de Xen. */
   ttsProvider: TtsProvider
   /** Voz de OpenAI (id de OPENAI_TTS_VOICES). */
@@ -341,6 +343,7 @@ export const DEFAULT_SETTINGS: Settings = {
   holdKey: 'CtrlRight',
   toggleShortcut: 'CommandOrControl+Shift+Space',
   speakReplies: false,
+  lastWorkspaceId: '',
   ttsProvider: 'system',
   ttsVoice: 'marin',
   systemVoice: '',

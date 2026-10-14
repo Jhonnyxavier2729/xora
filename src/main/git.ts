@@ -4,14 +4,20 @@ import { simpleGit } from 'simple-git'
 import type { GitStatus, Worktree } from '@shared/types'
 import { assertAllowed, worktreesRoot } from './files'
 
-const git = (cwd: string) => simpleGit({ baseDir: assertAllowed(cwd), maxConcurrentProcesses: 4 })
+// GIT_OPTIONAL_LOCKS=0: consultar el estado no toma el bloqueo del índice, así no estorba a un agente que trabaja.
+const git = (cwd: string) =>
+  simpleGit({ baseDir: assertAllowed(cwd), maxConcurrentProcesses: 2 }).env({ ...process.env, GIT_OPTIONAL_LOCKS: '0' })
 
 export async function status(cwd: string): Promise<GitStatus> {
   const g = git(cwd)
-  if (!(await g.checkIsRepo().catch(() => false))) {
-    return { isRepo: false, branch: '', ahead: 0, behind: 0, files: [] }
+  // Una sola llamada a git (antes eran dos: comprobar el repo y pedir el estado).
+  let s: Awaited<ReturnType<typeof g.status>>
+  try {
+    s = await g.status()
+  } catch (err) {
+    if (/not a git repository/i.test((err as Error).message)) return { isRepo: false, branch: '', ahead: 0, behind: 0, files: [] }
+    throw err
   }
-  const s = await g.status()
   return {
     isRepo: true,
     branch: s.current ?? '(detached)',

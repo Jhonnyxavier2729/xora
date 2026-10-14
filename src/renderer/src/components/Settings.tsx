@@ -116,6 +116,19 @@ const HOLD_KEYS = [
   ['Pause', 'Pausa']
 ] as const
 
+/** Correo difuminado hasta que se hace clic (otro clic lo vuelve a ocultar), por si compartes la pantalla. */
+function Blurred({ text }: { text: string | null }) {
+  const [shown, setShown] = useState(false)
+  if (!text) return null
+  const isEmail = /@/.test(text)
+  if (!isEmail) return <>{text}</>
+  return (
+    <button className={`blur-email ${shown ? 'shown' : ''}`} title={shown ? 'Ocultar' : 'Mostrar'} onClick={() => setShown(!shown)}>
+      {text}
+    </button>
+  )
+}
+
 const SAMPLE_PHRASE = 'Hola, soy Xen. Abro una terminal nueva y le paso la tarea a Claude Code.'
 
 /** Voz de Xen: motor (sistema u OpenAI), voz concreta, velocidad y prueba. */
@@ -394,7 +407,7 @@ function AccountsGroup({ onLogin }: { onLogin: (command: string) => void }) {
                   )
                 ) : acc.signedIn ? (
                   <>
-                    <span className="provider-state ready">● sesión iniciada</span> {acc.label}
+                    <span className="provider-state ready">● sesión iniciada</span> <Blurred text={acc.label} />
                   </>
                 ) : (
                   <span className="provider-state">● sin sesión</span>

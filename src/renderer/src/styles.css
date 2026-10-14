@@ -1384,3 +1384,13 @@ code.block {
 .toast-attention {
   border-color: rgba(245, 176, 65, 0.6);
 }
+
+/* Anillo de foco del teclado: visible sobre cualquier superficie */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+:root[data-mode='light'] :focus-visible {
+  outline-color: #1b2333;
+}
