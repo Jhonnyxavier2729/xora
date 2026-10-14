@@ -8,6 +8,7 @@
 // sube los cambios a GitHub, limpia dist/, compila el instalador de Windows y lo publica en
 // GitHub Releases junto con latest.yml, que es lo que leen las apps instaladas para enterarse.
 import { execSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 
@@ -51,7 +52,36 @@ if (existsSync('dist')) {
 
 run('git push origin master --follow-tags')
 run('npx electron-vite build')
-run('npx electron-builder --win --x64 --publish always', { env: { ...process.env, GH_TOKEN: token } })
+// Se compila sin publicar y se sube aparte con reintentos: una subida de 140 MB puede cortarse.
+run('npx electron-builder --win --x64 --publish never')
 
-console.log(`\n✔ Xora ${version} publicada: https://github.com/Jhonnyxavier2729/xora/releases/tag/v${version}`)
+const files = [`dist/Xora-Setup-${version}.exe`, `dist/Xora-Setup-${version}.exe.blockmap`, 'dist/latest.yml']
+for (const f of files) if (!existsSync(f)) throw new Error(`Falta ${f}: la compilación no lo generó.`)
+
+const notes = `Xora ${version}. Descarga el instalador de Windows y ejecútalo, o espera: las apps ya instaladas se actualizan solas.`
+try {
+  out(`gh release view v${version}`)
+} catch {
+  run(`gh release create v${version} --verify-tag --title "Xora ${version}" --notes "${notes}"`)
+}
+for (let attempt = 1; ; attempt++) {
+  try {
+    run(`gh release upload v${version} ${files.map((f) => `"${f}"`).join(' ')} --clobber`)
+    break
+  } catch (err) {
+    if (attempt >= 3) throw err
+    console.log(`
+⚠ La subida falló (intento ${attempt}/3). Reintentando…
+`)
+  }
+}
+
+// Comprueba que lo publicado es exactamente lo compilado (lo que valida el actualizador).
+const url = `https://github.com/Jhonnyxavier2729/xora/releases/download/v${version}`
+const manifest = await (await fetch(`${url}/latest.yml`, { redirect: 'follow' })).text()
+const sha = createHash('sha512').update(readFileSync(files[0])).digest('base64')
+if (!manifest.includes(`version: ${version}`) || !manifest.includes(sha)) throw new Error('Lo publicado no coincide con lo compilado.')
+
+console.log(`
+✔ Xora ${version} publicada y verificada: https://github.com/Jhonnyxavier2729/xora/releases/tag/v${version}`)
 console.log('  Las apps instaladas la verán en unos minutos (al abrirse o cada 4 horas).')
