@@ -764,16 +764,6 @@ code.block {
   position: relative;
 }
 
-.resize-handle {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 16px;
-  height: 16px;
-  cursor: nwse-resize;
-  background: linear-gradient(135deg, transparent 50%, var(--border-2) 50%, var(--border-2) 60%, transparent 60%, transparent 72%, var(--border-2) 72%, var(--border-2) 82%, transparent 82%);
-}
-
 .panel-error {
   color: var(--red);
   padding: 8px 10px;
@@ -1393,4 +1383,43 @@ code.block {
 
 :root[data-mode='light'] :focus-visible {
   outline-color: #1b2333;
+}
+
+/* Zonas de agarre para redimensionar: 4 bordes y 4 esquinas, invisibles, sobre el contorno del panel */
+.panel-handles {
+  position: absolute;
+  pointer-events: none;
+}
+
+.panel-handles .rh {
+  position: absolute;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.rh-top,
+.rh-bottom {
+  cursor: ns-resize;
+}
+.rh-left,
+.rh-right {
+  cursor: ew-resize;
+}
+.rh-topLeft,
+.rh-bottomRight {
+  cursor: nwse-resize;
+}
+.rh-topRight,
+.rh-bottomLeft {
+  cursor: nesw-resize;
+}
+
+/* Expandir con doble clic en un borde: el cambio de tamaño se anima */
+.panel.layout-anim,
+.panel-handles.layout-anim {
+  transition:
+    left 0.25s ease,
+    top 0.25s ease,
+    width 0.25s ease,
+    height 0.25s ease;
 }

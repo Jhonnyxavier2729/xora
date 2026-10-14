@@ -1,5 +1,5 @@
-import { memo, useState } from 'react'
-import type { Panel } from '@shared/types'
+import { memo, useRef, useState } from 'react'
+import type { Panel, PanelType } from '@shared/types'
 import { snapRect } from '../snap'
 import { useApp } from '../state'
 import { BrowserPanel } from '../panels/BrowserPanel'
@@ -21,8 +21,97 @@ interface Props {
   onToggleMax: () => void
 }
 
-const MIN_W = 280
-const MIN_H = 180
+/** Tamaño mínimo por tipo de panel: una nota puede ser pequeña; una terminal o una tarea, no tanto. */
+const MIN_SIZE: Record<PanelType, { w: number; h: number }> = {
+  notes: { w: 150, h: 100 },
+  terminal: { w: 240, h: 140 },
+  agent: { w: 240, h: 140 },
+  task: { w: 300, h: 220 },
+  editor: { w: 280, h: 180 },
+  browser: { w: 280, h: 180 },
+  git: { w: 280, h: 180 }
+}
+
+type Edge = 'top' | 'bottom' | 'left' | 'right' | 'topLeft' | 'topRight' | 'bottomLeft' | 'bottomRight'
+/** Primero los bordes y después las esquinas, que quedan por encima donde se cruzan. */
+const EDGES: Edge[] = ['top', 'bottom', 'left', 'right', 'topLeft', 'topRight', 'bottomLeft', 'bottomRight']
+const CURSORS: Record<Edge, string> = {
+  top: 'ns-resize',
+  bottom: 'ns-resize',
+  left: 'ew-resize',
+  right: 'ew-resize',
+  topLeft: 'nwse-resize',
+  bottomRight: 'nwse-resize',
+  topRight: 'nesw-resize',
+  bottomLeft: 'nesw-resize'
+}
+/** Grosor de la zona de agarre de un borde (px de pantalla) y cuánto sobresale por fuera del panel. */
+const HANDLE_PX = 9
+const HANDLE_OUT_PX = 6
+const CORNER_PX = 16
+const CORNER_OUT_PX = 8
+/** Bordes que se tocan a menos de esto (unidades del mundo) se consideran compartidos y se mueven juntos. */
+const SHARED_TOLERANCE = 2
+
+/** Posición de una zona de agarre: unos px de pantalla a cada lado del contorno, a cualquier zoom. */
+function handleStyle(edge: Edge, zoom: number): React.CSSProperties {
+  const t = HANDLE_PX / zoom
+  const o = HANDLE_OUT_PX / zoom
+  const c = CORNER_PX / zoom
+  const co = CORNER_OUT_PX / zoom
+  const style: Record<Edge, React.CSSProperties> = {
+    top: { left: 0, top: -o, width: '100%', height: t },
+    bottom: { left: 0, bottom: -o, width: '100%', height: t },
+    left: { left: -o, top: 0, width: t, height: '100%' },
+    right: { right: -o, top: 0, width: t, height: '100%' },
+    topLeft: { left: -co, top: -co, width: c, height: c },
+    topRight: { right: -co, top: -co, width: c, height: c },
+    bottomLeft: { left: -co, bottom: -co, width: c, height: c },
+    bottomRight: { right: -co, bottom: -co, width: c, height: c }
+  }
+  return style[edge]
+}
+
+interface AxisInput {
+  pos: number
+  size: number
+  min: number
+  /** pos: se mueve el borde derecho/inferior · neg: el izquierdo/superior. */
+  side: 'pos' | 'neg'
+  /** Desplazamiento pedido por el ratón en este eje. */
+  d: number
+  /** Posiciones de bordes de otros paneles a las que imantarse. */
+  targets: number[]
+  threshold: number
+  snap: boolean
+  /** Paneles pegados a este borde que se redimensionan a la vez. */
+  neighbors: { id: string; pos: number; size: number; min: number }[]
+}
+
+/** Redimensiona en un eje respetando mínimos, imán y los vecinos pegados al borde. */
+function resizeAxis(a: AxisInput): { pos: number; size: number; neighbors: { id: string; pos: number; size: number }[] } {
+  let d = a.d
+  const edge = a.side === 'pos' ? a.pos + a.size : a.pos
+  if (a.snap) {
+    let best: number | null = null
+    for (const t of a.targets) if (Math.abs(t - (edge + d)) <= a.threshold && (best === null || Math.abs(t - (edge + d)) < Math.abs(best))) best = t - (edge + d)
+    if (best !== null) d += best
+  }
+  let lo = -Infinity
+  let hi = Infinity
+  if (a.side === 'pos') {
+    lo = a.min - a.size
+    for (const n of a.neighbors) hi = Math.min(hi, n.size - n.min)
+  } else {
+    hi = a.size - a.min
+    for (const n of a.neighbors) lo = Math.max(lo, -(n.size - n.min))
+  }
+  d = Math.min(hi, Math.max(lo, d))
+  if (a.side === 'pos') {
+    return { pos: a.pos, size: a.size + d, neighbors: a.neighbors.map((n) => ({ id: n.id, pos: n.pos + d, size: n.size - d })) }
+  }
+  return { pos: a.pos + d, size: a.size - d, neighbors: a.neighbors.map((n) => ({ id: n.id, pos: n.pos, size: n.size + d })) }
+}
 /** Distancia de imantado en píxeles de pantalla (se convierte a unidades del mundo según el zoom). */
 const SNAP_PX = 8
 /** Píxeles de movimiento antes de que un clic en la cabecera se convierta en arrastre. */
@@ -41,7 +130,140 @@ export const PanelFrame = memo(function PanelFrame({ wsId, wsRoot, panel, zoom, 
   const info = useApp((s) => s.ptys[panel.id])
   const [editingTitle, setEditingTitle] = useState(false)
 
-  function startDrag(e: React.PointerEvent, mode: 'move' | 'resize') {
+  const [animating, setAnimating] = useState(false)
+  /** Tamaño antes de expandir con doble clic en un borde, para poder volver con otro doble clic. */
+  const expanded = useRef<{ from: { x: number; y: number; w: number; h: number }; to: { x: number; y: number; w: number; h: number } } | null>(null)
+
+  /** Arrastrar cualquier borde o esquina. Un borde pegado a otro panel mueve también el borde del vecino. */
+  function startResize(e: React.PointerEvent, edge: Edge) {
+    if (e.button !== 0 || maximizedRect) return
+    e.preventDefault()
+    e.stopPropagation()
+    const app = useApp.getState()
+    app.bringToFront(wsId, panel.id)
+    const ws = app.workspaces.find((w) => w.id === wsId)
+    const start = { x: e.clientX, y: e.clientY, px: panel.x, py: panel.y, pw: panel.w, ph: panel.h }
+    const own = MIN_SIZE[panel.type]
+    const others = (ws?.panels ?? []).filter((p) => p.id !== panel.id)
+    const left = edge === 'left' || edge === 'topLeft' || edge === 'bottomLeft'
+    const right = edge === 'right' || edge === 'topRight' || edge === 'bottomRight'
+    const top = edge === 'top' || edge === 'topLeft' || edge === 'topRight'
+    const bottom = edge === 'bottom' || edge === 'bottomLeft' || edge === 'bottomRight'
+    const cardinal = (left || right) !== (top || bottom)
+
+    // Vecinos que tocan el borde que se arrastra (solo en bordes, no en esquinas).
+    const overlap = (a0: number, a1: number, b0: number, b1: number) => Math.min(a1, b1) - Math.max(a0, b0) > 0
+    const sharing = (p: Panel) => {
+      if (right) return Math.abs(start.px + start.pw - p.x) <= SHARED_TOLERANCE && overlap(start.py, start.py + start.ph, p.y, p.y + p.h)
+      if (left) return Math.abs(start.px - (p.x + p.w)) <= SHARED_TOLERANCE && overlap(start.py, start.py + start.ph, p.y, p.y + p.h)
+      if (bottom) return Math.abs(start.py + start.ph - p.y) <= SHARED_TOLERANCE && overlap(start.px, start.px + start.pw, p.x, p.x + p.w)
+      return Math.abs(start.py - (p.y + p.h)) <= SHARED_TOLERANCE && overlap(start.px, start.px + start.pw, p.x, p.x + p.w)
+    }
+    const shared = cardinal && !e.altKey ? others.filter(sharing) : []
+    const sharedIds = new Set(shared.map((p) => p.id))
+    const snapTargets = others.filter((p) => !sharedIds.has(p.id))
+    const nbX = shared.map((p) => ({ id: p.id, pos: p.x, size: p.w, min: MIN_SIZE[p.type].w }))
+    const nbY = shared.map((p) => ({ id: p.id, pos: p.y, size: p.h, min: MIN_SIZE[p.type].h }))
+
+    let frame = 0
+    let active = false
+    const move = (ev: PointerEvent) => {
+      if (!active) {
+        if (Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < DRAG_THRESHOLD) return
+        active = true
+        app.setDragging(true)
+        document.body.style.setProperty('--resize-cursor', CURSORS[edge])
+        document.body.classList.add('canvas-interacting', 'is-resizing')
+      }
+      cancelAnimationFrame(frame)
+      frame = requestAnimationFrame(() => {
+        const dx = (ev.clientX - start.x) / zoom
+        const dy = (ev.clientY - start.y) / zoom
+        const snap = !ev.altKey
+        const thr = SNAP_PX / zoom
+        let x = start.px
+        let y = start.py
+        let w = start.pw
+        let h = start.ph
+        const changes: { id: string; x?: number; y?: number; w?: number; h?: number }[] = []
+        if (left || right) {
+          const r = resizeAxis({
+            pos: start.px, size: start.pw, min: own.w, side: right ? 'pos' : 'neg', d: dx, snap, threshold: thr,
+            targets: snapTargets.flatMap((p) => [p.x, p.x + p.w]), neighbors: left || right ? nbX : []
+          })
+          x = r.pos
+          w = r.size
+          for (const n of r.neighbors) changes.push({ id: n.id, x: n.pos, w: n.size })
+        }
+        if (top || bottom) {
+          const r = resizeAxis({
+            pos: start.py, size: start.ph, min: own.h, side: bottom ? 'pos' : 'neg', d: dy, snap, threshold: thr,
+            targets: snapTargets.flatMap((p) => [p.y, p.y + p.h]), neighbors: top || bottom ? nbY : []
+          })
+          y = r.pos
+          h = r.size
+          for (const n of r.neighbors) changes.push({ id: n.id, y: n.pos, h: n.size })
+        }
+        app.updatePanel(wsId, panel.id, { x: Math.round(x), y: Math.round(y), w: Math.round(w), h: Math.round(h) })
+        for (const c of changes) {
+          const { id, ...patch } = c
+          app.updatePanel(wsId, id, Object.fromEntries(Object.entries(patch).map(([k, v]) => [k, Math.round(v as number)])))
+        }
+      })
+    }
+    const up = () => {
+      cancelAnimationFrame(frame)
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', up)
+      if (!active) return
+      app.setDragging(false)
+      document.body.classList.remove('canvas-interacting', 'is-resizing')
+      document.body.style.removeProperty('--resize-cursor')
+    }
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', up)
+  }
+
+  /**
+   * Doble clic en un borde: el panel se expande hasta llenar la pantalla en ese eje (horizontal, vertical o
+   * ambos en una esquina), entre las barras laterales. Otro doble clic lo devuelve a su tamaño.
+   */
+  function expandEdge(edge: Edge) {
+    if (maximizedRect) return
+    const app = useApp.getState()
+    const ws = app.workspaces.find((w) => w.id === wsId)
+    if (!ws) return
+    const vp = ws.viewport
+    const cur = { x: panel.x, y: panel.y, w: panel.w, h: panel.h }
+    const prev = expanded.current
+    const close = (a: number, b: number) => Math.abs(a - b) <= 2
+    let next = cur
+    if (prev && close(cur.x, prev.to.x) && close(cur.y, prev.to.y) && close(cur.w, prev.to.w) && close(cur.h, prev.to.h)) {
+      next = prev.from
+      expanded.current = null
+    } else {
+      // Un borde lateral expande a lo ancho, uno superior o inferior a lo alto y una esquina, en los dos ejes.
+      const wide = edge !== 'top' && edge !== 'bottom'
+      const tall = edge !== 'left' && edge !== 'right'
+      // Márgenes en pantalla: barra de espacios, herramientas, barra superior y dock.
+      const L = 96, R = 96, T = 64, B = 104
+      next = { ...cur }
+      if (wide) {
+        next.x = Math.round((L - vp.x) / vp.zoom)
+        next.w = Math.round((window.innerWidth - L - R) / vp.zoom)
+      }
+      if (tall) {
+        next.y = Math.round((T - vp.y) / vp.zoom)
+        next.h = Math.round((window.innerHeight - T - B) / vp.zoom)
+      }
+      expanded.current = { from: cur, to: next }
+    }
+    setAnimating(true)
+    app.updatePanel(wsId, panel.id, next)
+    setTimeout(() => setAnimating(false), 320)
+  }
+
+  function startDrag(e: React.PointerEvent, mode: 'move') {
     if (e.button !== 0 || maximizedRect) return
     e.preventDefault()
     e.stopPropagation()
@@ -66,7 +288,7 @@ export const PanelFrame = memo(function PanelFrame({ wsId, wsRoot, panel, zoom, 
         if (Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < DRAG_THRESHOLD) return
         active = true
         app.setDragging(true)
-        document.body.classList.add('canvas-interacting', mode === 'move' ? 'is-moving' : 'is-resizing')
+        document.body.classList.add('canvas-interacting', 'is-moving')
       }
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => {
@@ -82,15 +304,6 @@ export const PanelFrame = memo(function PanelFrame({ wsId, wsRoot, panel, zoom, 
           last = { dx, dy }
           // El panel real se oculta y lo sigue un fantasma de cristal («Suelta para colocar»).
           app.setDragGhost({ ids: group.map((g) => g.id), dx, dy })
-        } else {
-          let w = Math.max(MIN_W, start.pw + dx)
-          let h = Math.max(MIN_H, start.ph + dy)
-          if (!ev.altKey) {
-            const snap = snapRect({ x: start.px + w, y: start.py + h, w: 0, h: 0 }, others, SNAP_PX / zoom)
-            w += snap.dx
-            h += snap.dy
-          }
-          app.updatePanel(wsId, panel.id, { w: Math.round(w), h: Math.round(h) })
         }
       })
     }
@@ -126,7 +339,7 @@ export const PanelFrame = memo(function PanelFrame({ wsId, wsRoot, panel, zoom, 
       />
     )}
     <div
-      className={`panel panel-${panel.type} ${panel.type === 'notes' ? `note-${panel.color ?? 'yellow'}` : ''} ${focused ? 'focused' : ''} ${selected ? 'selected' : ''} ${maximizedRect ? 'maximized' : ''} ${statusKey ? `status-${statusKey}` : ''} ${isDragSource ? 'is-drag-source' : ''}`}
+      className={`panel panel-${panel.type} ${animating ? 'layout-anim' : ''} ${panel.type === 'notes' ? `note-${panel.color ?? 'yellow'}` : ''} ${focused ? 'focused' : ''} ${selected ? 'selected' : ''} ${maximizedRect ? 'maximized' : ''} ${statusKey ? `status-${statusKey}` : ''} ${isDragSource ? 'is-drag-source' : ''}`}
       style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h, zIndex: maximizedRect ? 100000 : panel.z }}
       onPointerDownCapture={() => {
         if (!focused) useApp.getState().bringToFront(wsId, panel.id)
@@ -189,8 +402,25 @@ export const PanelFrame = memo(function PanelFrame({ wsId, wsRoot, panel, zoom, 
         {panel.type === 'notes' && <NotesPanel wsId={wsId} panel={panel} />}
         {panel.type === 'git' && <GitPanel wsId={wsId} wsRoot={wsRoot} panel={panel} />}
       </div>
-      {!maximizedRect && <div className="resize-handle" onPointerDown={(e) => startDrag(e, 'resize')} />}
     </div>
+    {!maximizedRect && (
+      // Zonas de agarre en los 4 bordes y las 4 esquinas, justo sobre el contorno del panel (como en Deska).
+      // Doble clic en una: el panel se expande hasta llenar la pantalla en ese eje.
+      <div
+        className={`panel-handles ${animating ? 'layout-anim' : ''}`}
+        style={{ left: rect.x, top: rect.y, width: rect.w, height: rect.h, zIndex: panel.z }}
+      >
+        {EDGES.map((edge) => (
+          <div
+            key={edge}
+            className={`rh rh-${edge}`}
+            style={handleStyle(edge, zoom)}
+            onPointerDown={(e) => startResize(e, edge)}
+            onDoubleClick={(e) => (e.stopPropagation(), expandEdge(edge))}
+          />
+        ))}
+      </div>
+    )}
     </>
   )
 })

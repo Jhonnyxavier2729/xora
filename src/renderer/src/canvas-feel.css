@@ -140,7 +140,7 @@ body.is-panning * {
 
 body.is-resizing,
 body.is-resizing * {
-  cursor: nwse-resize !important;
+  cursor: var(--resize-cursor, nwse-resize) !important;
 }
 
 /* Durante la interacción, ningún contenido incrustado roba el ratón */

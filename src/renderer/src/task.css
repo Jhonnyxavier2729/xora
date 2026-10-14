@@ -324,6 +324,26 @@
   line-height: 1.55;
 }
 
+/* Los mensajes comparten la clase .markdown de las notas (flex: 1 y overflow: auto): dentro de la
+   conversación eso los encogía a una franja con scroll y no se podían leer. Aquí crecen con su texto. */
+.tk-text.markdown {
+  flex: none;
+  overflow: visible;
+  padding: 0 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Nada dentro de la conversación se comprime: si no cabe, la conversación hace scroll. */
+.tk-thread > * {
+  flex-shrink: 0;
+}
+
+.tk-text.markdown pre {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
 .tk-text p {
   margin: 0.4em 0;
 }
