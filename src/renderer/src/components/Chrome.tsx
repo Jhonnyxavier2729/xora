@@ -521,26 +521,6 @@ function VoiceCard() {
   )
 }
 
-function DockSliders() {
-  const settings = useApp((s) => s.settings)
-  if (!settings) return null
-  const update = useApp.getState().updateSettings
-  return (
-    <div className="dock-sliders">
-      <label title="Oscurecer el fondo">
-        ☀
-        <input type="range" min={0} max={90} value={settings.wallpaperDim} onChange={(e) => void update({ wallpaperDim: Number(e.target.value) })} />
-        <span>{settings.wallpaperDim}%</span>
-      </label>
-      <label title="Opacidad de los paneles">
-        ◐
-        <input type="range" min={70} max={100} value={settings.panelOpacity} onChange={(e) => void update({ panelOpacity: Number(e.target.value) })} />
-        <span>{settings.panelOpacity}%</span>
-      </label>
-    </div>
-  )
-}
-
 export function BottomDock({ wsId }: { wsId: string | null }) {
   const ptys = useApp((s) => s.ptys)
   const voice = useApp((s) => s.voice)
@@ -588,7 +568,6 @@ export function BottomDock({ wsId }: { wsId: string | null }) {
         </div>
       </div>
       <div className="dock-under">
-        <DockSliders />
         <UsageChip />
       </div>
     </div>
