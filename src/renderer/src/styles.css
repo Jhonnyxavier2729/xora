@@ -639,6 +639,8 @@ code.block {
   top: 0;
   width: 0;
   height: 0;
+  /* La vista se mueve con transform (translate + scale) desde 0,0, aplicado por Canvas.tsx sin pasar por React. */
+  transform-origin: 0 0;
 }
 
 .world-zoom {

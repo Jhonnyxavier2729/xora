@@ -14,11 +14,10 @@ interface Props {
   wsId: string
   wsRoot: string
   panel: Panel
-  zoom: number
   focused: boolean
   selected: boolean
   maximizedRect: { x: number; y: number; w: number; h: number } | null
-  onToggleMax: () => void
+  onToggleMax: (id: string) => void
 }
 
 /** Tamaño mínimo por tipo de panel: una nota puede ser pequeña; una terminal o una tarea, no tanto. */
@@ -54,20 +53,22 @@ const CORNER_OUT_PX = 8
 const SHARED_TOLERANCE = 2
 
 /** Posición de una zona de agarre: unos px de pantalla a cada lado del contorno, a cualquier zoom. */
-function handleStyle(edge: Edge, zoom: number): React.CSSProperties {
-  const t = HANDLE_PX / zoom
-  const o = HANDLE_OUT_PX / zoom
-  const c = CORNER_PX / zoom
-  const co = CORNER_OUT_PX / zoom
+function handleStyle(edge: Edge): React.CSSProperties {
+  // --zoom-inv = 1 / zoom, lo mantiene Canvas al hacer zoom: así el tamaño en pantalla es fijo sin redibujar.
+  const px = (n: number): string => `calc(${n}px * var(--zoom-inv, 1))`
+  const t = px(HANDLE_PX)
+  const o = px(-HANDLE_OUT_PX)
+  const c = px(CORNER_PX)
+  const co = px(-CORNER_OUT_PX)
   const style: Record<Edge, React.CSSProperties> = {
-    top: { left: 0, top: -o, width: '100%', height: t },
-    bottom: { left: 0, bottom: -o, width: '100%', height: t },
-    left: { left: -o, top: 0, width: t, height: '100%' },
-    right: { right: -o, top: 0, width: t, height: '100%' },
-    topLeft: { left: -co, top: -co, width: c, height: c },
-    topRight: { right: -co, top: -co, width: c, height: c },
-    bottomLeft: { left: -co, bottom: -co, width: c, height: c },
-    bottomRight: { right: -co, bottom: -co, width: c, height: c }
+    top: { left: 0, top: o, width: '100%', height: t },
+    bottom: { left: 0, bottom: o, width: '100%', height: t },
+    left: { left: o, top: 0, width: t, height: '100%' },
+    right: { right: o, top: 0, width: t, height: '100%' },
+    topLeft: { left: co, top: co, width: c, height: c },
+    topRight: { right: co, top: co, width: c, height: c },
+    bottomLeft: { left: co, bottom: co, width: c, height: c },
+    bottomRight: { right: co, bottom: co, width: c, height: c }
   }
   return style[edge]
 }
@@ -126,7 +127,12 @@ const STATUS_TEXT = {
   exited: 'terminado'
 } as const
 
-export const PanelFrame = memo(function PanelFrame({ wsId, wsRoot, panel, zoom, focused, selected, maximizedRect, onToggleMax }: Props) {
+/** Zoom actual del lienzo, leído al empezar un gesto (así los paneles no se redibujan cada vez que cambia el zoom). */
+function currentZoom(wsId: string): number {
+  return useApp.getState().workspaces.find((w) => w.id === wsId)?.viewport.zoom ?? 1
+}
+
+export const PanelFrame = memo(function PanelFrame({ wsId, wsRoot, panel, focused, selected, maximizedRect, onToggleMax }: Props) {
   const info = useApp((s) => s.ptys[panel.id])
   const [editingTitle, setEditingTitle] = useState(false)
 
@@ -141,6 +147,7 @@ export const PanelFrame = memo(function PanelFrame({ wsId, wsRoot, panel, zoom, 
     e.stopPropagation()
     const app = useApp.getState()
     app.bringToFront(wsId, panel.id)
+    const zoom = currentZoom(wsId)
     const ws = app.workspaces.find((w) => w.id === wsId)
     const start = { x: e.clientX, y: e.clientY, px: panel.x, py: panel.y, pw: panel.w, ph: panel.h }
     const own = MIN_SIZE[panel.type]
@@ -268,6 +275,7 @@ export const PanelFrame = memo(function PanelFrame({ wsId, wsRoot, panel, zoom, 
     e.preventDefault()
     e.stopPropagation()
     const start = { x: e.clientX, y: e.clientY, px: panel.x, py: panel.y, pw: panel.w, ph: panel.h }
+    const zoom = currentZoom(wsId)
     const app = useApp.getState()
     app.bringToFront(wsId, panel.id)
     // Si el panel forma parte de una selección, se mueve todo el grupo.
@@ -345,7 +353,7 @@ export const PanelFrame = memo(function PanelFrame({ wsId, wsRoot, panel, zoom, 
         if (!focused) useApp.getState().bringToFront(wsId, panel.id)
       }}
     >
-      <div className="panel-header" onPointerDown={(e) => startDrag(e, 'move')} onDoubleClick={onToggleMax}>
+      <div className="panel-header" onPointerDown={(e) => startDrag(e, 'move')} onDoubleClick={() => onToggleMax(panel.id)}>
         <PanelIcon type={panel.type} size={14} />
         {editingTitle ? (
           <input
@@ -378,7 +386,7 @@ export const PanelFrame = memo(function PanelFrame({ wsId, wsRoot, panel, zoom, 
           </span>
         )}
         <div className="panel-actions" onPointerDown={(e) => e.stopPropagation()}>
-          <button className="icon-btn small" title={maximizedRect ? 'Restaurar' : 'Maximizar'} onClick={onToggleMax}>
+          <button className="icon-btn small" title={maximizedRect ? 'Restaurar' : 'Maximizar'} onClick={() => onToggleMax(panel.id)}>
             {maximizedRect ? <IconRestore size={13} /> : <IconMax size={13} />}
           </button>
           <button
@@ -414,7 +422,7 @@ export const PanelFrame = memo(function PanelFrame({ wsId, wsRoot, panel, zoom, 
           <div
             key={edge}
             className={`rh rh-${edge}`}
-            style={handleStyle(edge, zoom)}
+            style={handleStyle(edge)}
             onPointerDown={(e) => startResize(e, edge)}
             onDoubleClick={(e) => (e.stopPropagation(), expandEdge(edge))}
           />

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { AGENTS, type AgentId, type PanelType, type Viewport, type Workspace } from '@shared/types'
 import { PANEL_LABELS, useApp } from '../state'
 import { addPanelTo } from './Chrome'
@@ -135,7 +135,68 @@ export function Canvas({ workspaceId }: { workspaceId: string }) {
   const vp = ws.viewport
 
   const setVp = useCallback((next: Viewport) => useApp.getState().setViewport(workspaceId, next), [workspaceId])
-  const currentVp = useCallback(() => useApp.getState().workspaces.find((w) => w.id === workspaceId)!.viewport, [workspaceId])
+
+  // La vista «viva» (la que se ve en pantalla) vive fuera de React, como en Deska. Mientras se desplaza o se hace
+  // zoom, el movimiento se aplica directamente al elemento con `transform` (una vez por fotograma, sin volver a
+  // dibujar paneles ni barras). El estado global se actualiza al terminar el gesto.
+  const worldRef = useRef<HTMLDivElement>(null)
+  const liveVp = useRef<Viewport>(vp)
+  const gestureUntil = useRef(0)
+  const frameRef = useRef(0)
+  const commitTimer = useRef(0)
+  const commitMaxWait = useRef(0)
+  const maximizedRef = useRef<string | null>(null)
+  maximizedRef.current = maximized
+
+  const applyTransform = useCallback((v: Viewport) => {
+    const el = worldRef.current
+    if (!el) return
+    el.style.transform = `translate(${v.x}px, ${v.y}px) scale(${v.zoom})`
+    el.style.setProperty('--zoom-inv', String(1 / v.zoom))
+  }, [])
+  const toggleMax = useCallback((id: string) => setMaximized((m) => (m === id ? null : id)), [])
+
+  /** Mueve la vista de forma continua (rueda, arrastre). */
+  const moveVp = useCallback(
+    (next: Viewport) => {
+      // Con un panel maximizado, su posición depende de la vista: se mantiene el camino síncrono.
+      if (maximizedRef.current) {
+        liveVp.current = next
+        setVp(next)
+        return
+      }
+      liveVp.current = next
+      gestureUntil.current = performance.now() + 260
+      if (!frameRef.current) {
+        frameRef.current = requestAnimationFrame(() => {
+          frameRef.current = 0
+          applyTransform(liveVp.current)
+        })
+      }
+      const commit = (): void => {
+        window.clearTimeout(commitTimer.current)
+        window.clearTimeout(commitMaxWait.current)
+        commitTimer.current = 0
+        commitMaxWait.current = 0
+        setVp(liveVp.current)
+      }
+      // Se guarda al terminar (190 ms sin movimiento) y, como tope, cada 600 ms si el gesto no para (minimapa).
+      window.clearTimeout(commitTimer.current)
+      commitTimer.current = window.setTimeout(commit, 190)
+      if (!commitMaxWait.current) commitMaxWait.current = window.setTimeout(commit, 600)
+    },
+    [setVp, applyTransform]
+  )
+
+  const currentVp = useCallback(() => liveVp.current, [])
+
+  // Cuando la vista cambia desde otro sitio (centrar un panel, ajustar, minimapa, otro workspace), se refleja.
+  useLayoutEffect(() => {
+    if (performance.now() > gestureUntil.current) {
+      liveVp.current = vp
+      applyTransform(vp)
+    }
+  }, [vp, applyTransform])
 
   useEffect(() => {
     const el = containerRef.current
@@ -159,15 +220,15 @@ export function Canvas({ workspaceId }: { workspaceId: string }) {
         const cy = e.clientY - rect.top
         const zoom = clampZoom(current.zoom * Math.exp(-e.deltaY * 0.0015))
         const k = zoom / current.zoom
-        setVp({ zoom, x: cx - (cx - current.x) * k, y: cy - (cy - current.y) * k })
+        moveVp({ zoom, x: cx - (cx - current.x) * k, y: cy - (cy - current.y) * k })
       } else if (onBackground) {
         e.preventDefault()
-        setVp({ ...current, x: current.x - e.deltaX, y: current.y - e.deltaY })
+        moveVp({ ...current, x: current.x - e.deltaX, y: current.y - e.deltaY })
       }
     }
     el.addEventListener('wheel', onWheel, { passive: false })
     return () => el.removeEventListener('wheel', onWheel)
-  }, [setVp, currentVp])
+  }, [moveVp, currentVp])
 
   // Espacio mantenido = modo mano (si el foco no está en un campo de texto o terminal).
   useEffect(() => {
@@ -210,7 +271,8 @@ export function Canvas({ workspaceId }: { workspaceId: string }) {
 
   /** Mover la vista: botón central, derecho o Espacio + arrastrar (como en Deska). */
   function startPan(e: React.PointerEvent, fromRightButton: boolean) {
-    const start = { x: e.clientX, y: e.clientY, vx: vp.x, vy: vp.y }
+    const origin = currentVp()
+    const start = { x: e.clientX, y: e.clientY, vx: origin.x, vy: origin.y }
     let moved = false
     const move = (ev: PointerEvent) => {
       if (!moved && Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < MARQUEE_THRESHOLD) return
@@ -220,7 +282,7 @@ export function Canvas({ workspaceId }: { workspaceId: string }) {
         useApp.getState().setDragging(true)
         document.body.classList.add('canvas-interacting', 'is-panning')
       }
-      setVp({ ...currentVp(), x: start.vx + ev.clientX - start.x, y: start.vy + ev.clientY - start.y })
+      moveVp({ ...currentVp(), x: start.vx + ev.clientX - start.x, y: start.vy + ev.clientY - start.y })
     }
     const up = () => {
       // Un clic derecho sin arrastrar abre el menú; si hubo arrastre, se suprime.
@@ -411,15 +473,14 @@ export function Canvas({ workspaceId }: { workspaceId: string }) {
           setMenu({ x: e.clientX, y: e.clientY })
         }}
       >
-        <div className="world" style={{ transform: `translate(${vp.x}px, ${vp.y}px)` }}>
-          <div className="world-zoom" style={{ zoom: vp.zoom }}>
+        <div className="world" ref={worldRef}>
+          <div className="world-zoom">
             {ws.panels.map((p) => (
               <PanelFrame
                 key={p.id}
                 wsId={workspaceId}
                 wsRoot={ws.root}
                 panel={p}
-                zoom={vp.zoom}
                 focused={focusedPanelId === p.id}
                 selected={selected.includes(p.id)}
                 maximizedRect={
@@ -427,7 +488,7 @@ export function Canvas({ workspaceId }: { workspaceId: string }) {
                     ? { x: (60 - vp.x) / vp.zoom, y: (56 - vp.y) / vp.zoom, w: (size.w - 120) / vp.zoom, h: (size.h - 140) / vp.zoom }
                     : null
                 }
-                onToggleMax={() => setMaximized((m) => (m === p.id ? null : p.id))}
+                onToggleMax={toggleMax}
               />
             ))}
             {/* Fantasmas de arrastre: cristal desenfocado con el título y «Suelta para colocar». */}
