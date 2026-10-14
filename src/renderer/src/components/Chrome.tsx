@@ -4,6 +4,7 @@ import { ACCENTS, THEMES, WALLPAPERS, wallpaperUrl } from '../appearance'
 import { findPanel, PANEL_LABELS, useApp } from '../state'
 import { XoraMark } from './Logo'
 import { UsageChip } from './Usage'
+import { createGlowController, type GlowController, type GlowState } from '../voice-glow'
 import { XenFace, type XenMood } from './XenFace'
 import { errMsg, timeAgo } from '../utils'
 import {
@@ -78,13 +79,58 @@ export function Wallpaper() {
   )
 }
 
-/** Brillo en los bordes de la pantalla mientras Xen escucha, piensa o se dicta. Late con el volumen del micrófono. */
+/**
+ * Brillo de pantalla completa (como el de Deska) mientras Xen escucha, se dicta en un cuadro de texto
+ * o Xen piensa: luz difusa que sale de los bordes, gira, respira y se intensifica con tu voz.
+ * Azul al dictar, violeta al hablar con Xen, rosa mientras procesa.
+ */
 export function VoiceGlow() {
   const voice = useApp((s) => s.voice)
   const mode = useApp((s) => s.voiceMode)
-  const kind =
-    voice.phase === 'listening' ? (mode === 'dictate' ? 'dictate' : 'listen') : voice.phase === 'transcribing' || voice.phase === 'thinking' ? 'think' : null
-  return <div className={`voice-glow ${kind ? `on glow-${kind}` : ''}`} aria-hidden="true" />
+  const glow: GlowState | null =
+    voice.phase === 'listening' ? (mode === 'dictate' ? 'dictating' : 'listening') : voice.phase === 'transcribing' || voice.phase === 'thinking' ? 'working' : null
+
+  // El lienzo sigue montado un momento tras apagarse para que la luz se desvanezca en vez de cortarse.
+  const [mounted, setMounted] = useState(false)
+  const [lit, setLit] = useState(false)
+  const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null)
+  const controller = useRef<GlowController | null>(null)
+  const last = useRef<GlowState>('listening')
+  if (glow) last.current = glow
+
+  useEffect(() => {
+    if (!glow) {
+      setLit(false)
+      const t = setTimeout(() => setMounted(false), 700)
+      return () => clearTimeout(t)
+    }
+    setMounted(true)
+    let inner = 0
+    const outer = requestAnimationFrame(() => {
+      inner = requestAnimationFrame(() => setLit(true))
+    })
+    return () => {
+      cancelAnimationFrame(outer)
+      cancelAnimationFrame(inner)
+    }
+  }, [glow])
+
+  useEffect(() => {
+    if (!canvas) return
+    const created = createGlowController(canvas)
+    controller.current = created
+    return () => {
+      controller.current = null
+      created?.destroy()
+    }
+  }, [canvas])
+
+  useEffect(() => {
+    controller.current?.setTarget(last.current, lit && glow !== null)
+  }, [canvas, glow, lit])
+
+  if (!mounted) return null
+  return <canvas ref={setCanvas} className="voice-glow" aria-hidden="true" />
 }
 
 // ---------------------------------------------------------------------------

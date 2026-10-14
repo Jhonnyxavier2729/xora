@@ -335,47 +335,12 @@ button.crumb:hover,
 .voice-glow {
   position: fixed;
   inset: 0;
+  width: 100vw;
+  height: 100vh;
   z-index: 4000;
   pointer-events: none;
-  opacity: 0;
-  transition: opacity 0.5s ease;
-  --glow: var(--accent);
-}
-
-.voice-glow.on {
-  opacity: calc(0.7 + var(--voice-level) * 0.3);
-}
-
-.voice-glow::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  box-shadow:
-    inset 0 0 calc(60px + var(--voice-level) * 90px) calc(6px + var(--voice-level) * 14px) color-mix(in srgb, var(--glow) 55%, transparent),
-    inset 0 0 12px 1px color-mix(in srgb, var(--glow) 70%, transparent);
-  transition: box-shadow 0.1s linear;
-}
-
-.voice-glow.on::before {
-  animation: glow-breathe 3.2s ease-in-out infinite;
-}
-
-.glow-dictate {
-  --glow: #4f8cff;
-}
-
-.glow-think {
-  --glow: #b56bff;
-}
-
-@keyframes glow-breathe {
-  0%,
-  100% {
-    filter: hue-rotate(0deg);
-  }
-  50% {
-    filter: hue-rotate(-25deg);
-  }
+  /* El lienzo se pinta sobre negro: con «screen» el negro no suma nada y solo se ve la luz. */
+  mix-blend-mode: screen;
 }
 
 /* ---------------------------------------------------------------------------

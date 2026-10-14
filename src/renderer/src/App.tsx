@@ -5,6 +5,7 @@ import { applyAppearance } from './appearance'
 import { MusicHost } from './components/Extras'
 import { UpdateNotice } from './components/UpdateNotice'
 import { setFocusNotifier } from './extras-state'
+import { setGlowLevel } from './voice-glow'
 import { BottomDock, LookPopover, SpacesRail, TopBar, VoiceGlow, Wallpaper } from './components/Chrome'
 import { Home } from './components/Home'
 import { NewWorkspaceModal } from './components/NewWorkspace'
@@ -145,7 +146,10 @@ export function App() {
       })(),
       window.api.voice.onState((state, mode) => useApp.getState().setVoice(state, mode)),
       // El volumen va directo a una variable CSS: 20 veces por segundo sin re-renderizar React.
-      window.api.voice.onLevel((level) => document.documentElement.style.setProperty('--voice-level', level.toFixed(3))),
+      window.api.voice.onLevel((level) => {
+        document.documentElement.style.setProperty('--voice-level', level.toFixed(3))
+        setGlowLevel(level)
+      }),
       window.api.app.onWarning((m) => useApp.getState().toast(m, 'error')),
       window.api.app.onNotice((m) => useApp.getState().toast(m, 'info'))
     ]
