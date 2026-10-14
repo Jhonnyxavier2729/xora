@@ -1,11 +1,9 @@
-# Genera los instaladores de Windows, macOS y Linux y los sube a un borrador de GitHub Release.
-# Se lanza al subir una etiqueta de versión:  git tag v0.2.0 && git push origin v0.2.0
-# (la versión de package.json debe coincidir con la etiqueta).
+# Compila los instaladores de macOS y Linux (y Windows) en la nube y los añade a la versión publicada.
+# Se lanza a mano desde GitHub → Actions → Release → Run workflow, después de `npm run release`
+# (que publica la versión de Windows desde tu equipo). La versión de package.json manda.
 name: Release
 
 on:
-  push:
-    tags: ['v*']
   workflow_dispatch:
 
 permissions:

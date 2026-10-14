@@ -349,3 +349,55 @@
 :root[data-mode='light'] .usage-pace {
   background: #000;
 }
+
+/* ---------------------------------------------------------------------------
+   Aviso de nueva versión */
+
+.update-notice {
+  position: fixed;
+  top: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3100;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 8px 8px 14px;
+  border-radius: 14px;
+  animation: ex-in 0.2s ease-out;
+}
+
+.update-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 25%, transparent);
+}
+
+.update-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 200px;
+  font-size: 12px;
+}
+
+.update-text strong {
+  font-size: 13px;
+}
+
+.update-bar {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.12);
+  overflow: hidden;
+}
+
+.update-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.3s ease;
+}

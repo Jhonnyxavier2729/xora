@@ -85,6 +85,16 @@ export interface Panel {
   task?: TaskConfig
 }
 
+/** Estado del actualizador (como Deska: avisar, descargar con progreso y reiniciar). */
+export type UpdateStatus =
+  | { state: 'idle'; current: string }
+  | { state: 'checking'; current: string }
+  | { state: 'latest'; current: string }
+  | { state: 'available'; current: string; version: string; canSelfInstall: boolean }
+  | { state: 'downloading'; current: string; version: string; percent: number }
+  | { state: 'downloaded'; current: string; version: string }
+  | { state: 'error'; current: string; message: string }
+
 /** Ventana de uso de una suscripción (sesión de 5 h o semana). */
 export interface UsageWindow {
   kind: 'session' | 'week'

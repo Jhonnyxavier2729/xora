@@ -7,7 +7,7 @@ import { registerIpc } from './ipc'
 import { ptys } from './pty'
 import { broadcastState, disableRemote, remoteState, setRemoteChangeListener } from './remote'
 import { flushStore, store } from './store'
-import { startAutoUpdates } from './updater'
+import { registerUpdater } from './updater'
 import { createPillWindow, startHotkeys, stopHotkeys } from './voice'
 import { handleAssetScheme, registerAssetScheme } from './wallpaper'
 
@@ -144,6 +144,7 @@ app.whenReady().then(async () => {
   })
 
   registerIpc()
+  registerUpdater()
   wirePtyEvents()
   setRemoteChangeListener(async () => send('remote:changed', await remoteState()))
   ptys.on('status', () => broadcastState())
@@ -152,7 +153,6 @@ app.whenReady().then(async () => {
   createPillWindow()
   const hotkeyWarning = await startHotkeys()
   if (hotkeyWarning) mainWindow.webContents.once('did-finish-load', () => send('app:warning', hotkeyWarning))
-  startAutoUpdates((message) => send('app:notice', message))
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) mainWindow = createMainWindow()

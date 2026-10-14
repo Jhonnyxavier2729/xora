@@ -3,6 +3,7 @@ import type { CanvasCommand, Panel } from '@shared/types'
 import { Canvas } from './components/Canvas'
 import { applyAppearance } from './appearance'
 import { MusicHost } from './components/Extras'
+import { UpdateNotice } from './components/UpdateNotice'
 import { setFocusNotifier } from './extras-state'
 import { BottomDock, LookPopover, SpacesRail, TopBar, VoiceGlow, Wallpaper } from './components/Chrome'
 import { Home } from './components/Home'
@@ -159,6 +160,7 @@ export function App() {
       <Wallpaper />
       {inCanvas ? <Canvas key={activeId} workspaceId={activeId!} /> : <Home />}
       <TopBar workspace={inCanvas ? workspace : null} />
+      <UpdateNotice />
       <SpacesRail activeId={inCanvas ? activeId : null} />
       <BottomDock wsId={inCanvas ? activeId : null} />
       <MusicHost />

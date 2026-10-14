@@ -22,6 +22,7 @@ import {
 import { useApp } from '../state'
 import { errMsg, timeAgo } from '../utils'
 import { speak, systemVoices } from '../speech'
+import { UpdateRow } from './UpdateNotice'
 import { LookContent } from './Chrome'
 import {
   IconAgent,
@@ -1023,6 +1024,7 @@ function DiagnosticsSection() {
       <h2>Diagnóstico</h2>
       <Group title="Xora">
         <Row title="Versión" desc={info ? `${info.version} · Electron ${info.electron} · Node ${info.node} · ${info.platform}` : '…'} />
+        <UpdateRow />
         <Row title="Datos" desc={info ? <code>{info.userData}</code> : '…'}>
           {info && (
             <button className="btn small" onClick={() => void window.api.shell.openPath(info.userData)}>

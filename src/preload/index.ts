@@ -19,6 +19,7 @@ import type {
   GitStatus,
   NoteSummary,
   PtyInfo,
+  UpdateStatus,
   UsageReport,
   RemoteState,
   SecretName,
@@ -157,6 +158,14 @@ const api = {
     revoke: (id: string): Promise<RemoteState> => ipcRenderer.invoke('remote:revoke', id),
     tunnel: (on: boolean): Promise<RemoteState> => ipcRenderer.invoke('remote:tunnel', on),
     onChanged: (fn: (s: RemoteState) => void) => on('remote:changed', fn)
+  },
+  update: {
+    status: (): Promise<UpdateStatus> => ipcRenderer.invoke('update:getStatus'),
+    check: () => ipcRenderer.send('update:check'),
+    download: () => ipcRenderer.send('update:download'),
+    install: () => ipcRenderer.send('update:install'),
+    openRelease: () => ipcRenderer.send('update:openRelease'),
+    onStatus: (fn: (s: UpdateStatus) => void) => on('update:status', fn)
   },
   usage: {
     report: (force?: boolean): Promise<UsageReport> => ipcRenderer.invoke('usage:report', force)
