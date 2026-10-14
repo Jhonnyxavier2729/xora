@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { Panel, TaskAccess, TaskConfig, TaskItem, TaskModel, TaskModels, TaskProvider, Worktree } from '@shared/types'
-import { IconMic } from '../components/Icons'
+import { DotsThree, GitBranch, Lock, LockSimpleOpen, Microphone, Paperclip, PencilSimpleLine, Sparkle, Stop, type Icon } from '@phosphor-icons/react'
+import { Chip, ChipMenu, type MenuItem } from '../components/ChipMenu'
 import { useApp } from '../state'
 import { errMsg } from '../utils'
 
@@ -105,101 +107,41 @@ function fitToModel(config: TaskConfig, model: TaskModel | undefined): TaskConfi
   return next
 }
 
-/**
- * Razonamiento del modelo (como en Deska): nivel de esfuerzo, modo rápido, ventana de contexto y el
- * interruptor de «pensar». Cada modelo ofrece solo lo que admite. Se aplica desde el siguiente mensaje.
- */
-function TuningPicker({ config, onChange }: { config: TaskConfig; onChange: (c: TaskConfig) => void }) {
-  const [open, setOpen] = useState(false)
-  const [models, setModels] = useState<TaskModels | null>(null)
-  const ref = useOutside<HTMLDivElement>(open, () => setOpen(false))
-  useEffect(() => {
-    void loadModels().then(setModels)
-  }, [open, config.provider])
-
-  const model = models?.[config.provider]?.find((m) => m.id === config.model)
-  const efforts = model?.efforts ?? []
-  if (!model || (!efforts.length && !model.fast && !model.contexts && !model.thinkingToggle)) return null
-
-  const set = (patch: Partial<TaskConfig>) => onChange({ ...config, ...patch })
-  const shown = config.effort ?? model.defaultEffort
-  const label = model.thinkingToggle
-    ? config.thinking === false
-      ? 'Sin pensar'
-      : 'Pensando'
-    : shown
-      ? `Razonamiento: ${effortLabel(shown)}`
-      : 'Razonamiento'
-  const context = config.context ?? model.defaultContext
-
-  return (
-    <div className="menu-anchor" ref={ref}>
-      <button className={`tk-chip plain ${config.effort || config.fast || config.thinking === false || config.context ? 'on' : ''}`} onClick={() => setOpen(!open)} title="Razonamiento, velocidad y contexto del modelo">
-        {label} ▾
-      </button>
-      {open && (
-        <div className="menu menu-up tk-tuning">
-          {efforts.length > 0 && (
-            <>
-              <div className="menu-title">Esfuerzo de razonamiento</div>
-              <div className="tk-seg">
-                {efforts.map((e) => (
-                  <button key={e} className={`tk-seg-btn ${shown === e ? 'on' : ''}`} onClick={() => set({ effort: e })}>
-                    {effortLabel(e)}
-                    {e === model.defaultEffort && !config.effort && <span className="muted small"> · por defecto</span>}
-                  </button>
-                ))}
-              </div>
-              {config.effort && (
-                <button className="link-plain muted small tk-reset" onClick={() => set({ effort: undefined })}>
-                  Usar el valor por defecto del agente
-                </button>
-              )}
-            </>
-          )}
-          {model.thinkingToggle && (
-            <label className="tk-switch">
-              <span>
-                <strong>Pensar antes de responder</strong>
-                <span className="muted small">Haiku 4.5 razona siempre, o responde directo.</span>
-              </span>
-              <input type="checkbox" checked={config.thinking !== false} onChange={(e) => set({ thinking: e.target.checked })} />
-            </label>
-          )}
-          {model.fast && (
-            <label className="tk-switch">
-              <span>
-                <strong>Modo rápido</strong>
-                <span className="muted small">Respuestas más rápidas del mismo modelo; cuesta más.</span>
-              </span>
-              <input type="checkbox" checked={!!config.fast} onChange={(e) => set({ fast: e.target.checked })} />
-            </label>
-          )}
-          {model.contexts && (
-            <>
-              <div className="menu-title">Ventana de contexto</div>
-              <div className="tk-seg">
-                {model.contexts.map((c) => (
-                  <button key={c} className={`tk-seg-btn ${context === c ? 'on' : ''}`} onClick={() => set({ context: c })}>
-                    {c === '1m' ? '1 M' : '200 k'}
-                  </button>
-                ))}
-              </div>
-            </>
-          )}
-          <p className="muted small tk-tuning-note">Se aplica desde el siguiente mensaje de la tarea.</p>
-        </div>
-      )}
-    </div>
-  )
-}
-
 function ModelPicker({ config, onChange }: { config: TaskConfig; onChange: (c: TaskConfig) => void }) {
   const [open, setOpen] = useState(false)
   const [models, setModels] = useState<TaskModels | null>(null)
   const [tab, setTab] = useState<TaskProvider>(config.provider)
   const [query, setQuery] = useState('')
-  const ref = useOutside<HTMLDivElement>(open, () => setOpen(false))
+  const anchorRef = useRef<HTMLSpanElement>(null)
+  const popRef = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{ left: number; top: number; height: number } | null>(null)
+
+  // El menú se dibuja en el <body> (así no lo recorta el panel ni lo escala el zoom) y se coloca junto al chip.
+  useLayoutEffect(() => {
+    if (!open || !anchorRef.current) return setPos(null)
+    const r = anchorRef.current.getBoundingClientRect()
+    const width = 470
+    const above = r.top - 16
+    const below = window.innerHeight - r.bottom - 16
+    const up = above >= 460 || above > below
+    // Si no cabe entero, encoge al espacio libre en vez de tapar el chip.
+    const height = Math.max(220, Math.min(460, up ? above : below))
+    setPos({
+      left: Math.max(8, Math.min(r.left - 40, window.innerWidth - width - 8)),
+      top: up ? Math.max(8, r.top - height - 8) : r.bottom + 8,
+      height
+    })
+  }, [open])
+  useEffect(() => {
+    if (!open) return
+    const down = (e: PointerEvent): void => {
+      const t = e.target as Node
+      if (anchorRef.current?.contains(t) || popRef.current?.contains(t)) return
+      setOpen(false)
+    }
+    window.addEventListener('pointerdown', down, true)
+    return () => window.removeEventListener('pointerdown', down, true)
+  }, [open])
 
   // Al abrir el selector se toma la lista más reciente (la renovación periódica ya la dejó al día).
   useEffect(() => {
@@ -239,13 +181,23 @@ function ModelPicker({ config, onChange }: { config: TaskConfig; onChange: (c: T
   const label = current?.label ?? (config.model || 'Predeterminado')
 
   return (
-    <div className="menu-anchor" ref={ref}>
-      <button className="tk-chip" onClick={() => setOpen(!open)} title="Agente y modelo">
-        <ProviderIcon id={config.provider} />
-        {label} ▾
-      </button>
-      {open && (
-        <div className="model-picker glass">
+    <span className="xchip-slot xchip-model" ref={anchorRef}>
+      <Chip
+        leading={<ProviderIcon id={config.provider} size={13} />}
+        label={label}
+        caret
+        expanded={open}
+        title="Agente y modelo de esta tarea. Un turno que ya está en marcha termina con el modelo con el que empezó."
+        onClick={() => setOpen(!open)}
+      />
+      {open &&
+        pos &&
+        createPortal(
+        <div
+          ref={popRef}
+          className="model-picker glass"
+          style={{ position: 'fixed', left: pos.left, top: pos.top, bottom: 'auto', height: pos.height }}
+        >
           <div className="mp-tabs">
             {PROVIDERS.map((p) => (
               <button key={p.id} className={`mp-tab ${tab === p.id ? 'on' : ''}`} title={p.name} onClick={() => setTab(p.id)}>
@@ -293,52 +245,227 @@ function ModelPicker({ config, onChange }: { config: TaskConfig; onChange: (c: T
               </button>
             </div>
           </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-function AccessPicker({ config, onChange }: { config: TaskConfig; onChange: (c: TaskConfig) => void }) {
-  const [open, setOpen] = useState(false)
-  const ref = useOutside<HTMLDivElement>(open, () => setOpen(false))
-  const current = ACCESS.find((a) => a.id === config.access) ?? ACCESS[3]
-  return (
-    <div className="menu-anchor" ref={ref}>
-      <button className="tk-chip plain" onClick={() => setOpen(!open)} title="Qué puede hacer el agente sin preguntarte">
-        ⋯ {current.label} ▾
-      </button>
-      {open && (
-        <div className="menu menu-up tk-access">
-          {ACCESS.map((a) => (
-            <button
-              key={a.id}
-              className={`menu-item ${a.id === config.access ? 'on' : ''}`}
-              onClick={() => {
-                onChange({ ...config, access: a.id })
-                setOpen(false)
-              }}
-            >
-              <span className="grow">
-                <strong>{a.label}</strong>
-                <span className="muted small"> · {a.detail}</span>
-              </span>
-              {a.id === config.access && '✓'}
-            </button>
-          ))}
-          {config.provider !== 'claude' && (
-            <div className="menu-empty small">
-              {config.provider === 'codex' ? 'Codex aplica el acceso como permisos del sandbox.' : 'OpenCode usa los permisos de su configuración.'}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+        </div>,
+          document.body
+        )}
+    </span>
   )
 }
 
 // ---------------------------------------------------------------------------
 // Compositor
+
+const ACCESS_ICONS: Record<TaskAccess, Icon> = {
+  'approval-required': Lock,
+  'auto-accept-edits': PencilSimpleLine,
+  auto: Sparkle,
+  'full-access': LockSimpleOpen
+}
+
+/**
+ * Chip «··· Acceso total ⌄» (como el de ajustes de Deska): un solo menú con el razonamiento del modelo
+ * (esfuerzo, contexto, modo rápido, pensar), los permisos y, en paneles estrechos, Build/Plan.
+ * Cada modelo ofrece solo lo que admite.
+ */
+function SettingsChip({ config, onChange, compact }: { config: TaskConfig; onChange: (c: TaskConfig) => void; compact: boolean }) {
+  const [open, setOpen] = useState(false)
+  const [models, setModels] = useState<TaskModels | null>(null)
+  const anchor = useRef<HTMLSpanElement>(null)
+  useEffect(() => {
+    void loadModels().then(setModels)
+  }, [open, config.provider])
+
+  const model = models?.[config.provider]?.find((m) => m.id === config.model)
+  const efforts = model?.efforts ?? []
+  const effort = config.effort && efforts.includes(config.effort) ? config.effort : ''
+  const contexts = model?.contexts ?? []
+  const context = config.context && contexts.includes(config.context) ? config.context : (model?.defaultContext ?? '')
+
+  const items: MenuItem[] = []
+  if (efforts.length) {
+    items.push({ value: 'effort:', label: 'Por defecto', detail: 'El modelo decide cuánto pensar', group: 'Razonamiento' })
+    for (const e of efforts) items.push({ value: `effort:${e}`, label: effortLabel(e), group: 'Razonamiento' })
+  }
+  for (const c of contexts) items.push({ value: `window:${c}`, label: c === '1m' ? '1M' : '200K', group: 'Ventana de contexto' })
+  if (model?.fast) {
+    items.push({ value: 'fast:on', label: 'Activado', group: 'Modo rápido' })
+    items.push({ value: 'fast:off', label: 'Desactivado', detail: 'Deliberación completa', group: 'Modo rápido' })
+  }
+  if (model?.thinkingToggle) {
+    items.push({ value: 'thinking:on', label: 'Activado', detail: 'Piensa antes de responder', group: 'Pensar' })
+    items.push({ value: 'thinking:off', label: 'Desactivado', group: 'Pensar' })
+  }
+  for (const a of ACCESS) {
+    const AccessIcon = ACCESS_ICONS[a.id]
+    items.push({ value: `mode:${a.id}`, label: a.label, detail: a.detail, group: 'Permisos', leading: <AccessIcon size={14} /> })
+  }
+  if (compact) {
+    items.push({ value: 'plan:off', label: 'Build', detail: 'Edita archivos sobre la marcha', group: 'Siguiente turno' })
+    items.push({ value: 'plan:on', label: 'Plan', detail: 'Investiga y propone un plan, sin editar', group: 'Siguiente turno' })
+  }
+
+  const selected = [`mode:${config.access}`]
+  if (efforts.length) selected.push(`effort:${effort}`)
+  if (context) selected.push(`window:${context}`)
+  if (model?.fast) selected.push(config.fast ? 'fast:on' : 'fast:off')
+  if (model?.thinkingToggle) selected.push(config.thinking === false ? 'thinking:off' : 'thinking:on')
+  if (compact) selected.push(config.mode === 'plan' ? 'plan:on' : 'plan:off')
+
+  const pick = (value: string): void => {
+    const [kind, ...rest] = value.split(':')
+    const v = rest.join(':')
+    if (kind === 'effort') onChange({ ...config, effort: v || undefined })
+    else if (kind === 'window') onChange({ ...config, context: v })
+    else if (kind === 'fast') onChange({ ...config, fast: v === 'on' })
+    else if (kind === 'thinking') onChange({ ...config, thinking: v === 'on' })
+    else if (kind === 'mode') onChange({ ...config, access: v as TaskAccess })
+    else if (kind === 'plan') onChange({ ...config, mode: v === 'on' ? 'plan' : 'build' })
+  }
+
+  const access = ACCESS.find((a) => a.id === config.access) ?? ACCESS[3]
+  const tuned = !!(config.effort || config.fast || config.context || config.thinking === false)
+  const summary = [effort && effortLabel(effort), context && contexts.length > 1 && context.toUpperCase(), config.fast && model?.fast && 'rápido']
+    .filter(Boolean)
+    .join(', ')
+  const note =
+    config.provider === 'codex'
+      ? 'Codex aplica el acceso como permisos del sandbox.'
+      : config.provider === 'opencode'
+        ? 'OpenCode usa los permisos de su configuración.'
+        : ''
+
+  return (
+    <span ref={anchor} className="xchip-slot">
+      <Chip
+        leading={<DotsThree size={14} weight="bold" aria-hidden />}
+        label={compact ? '' : access.label}
+        caret
+        active={tuned}
+        expanded={open}
+        title={`Ajustes: ${access.detail}${summary ? ` · ${summary}` : ''}`}
+        onClick={() => setOpen(!open)}
+      />
+      {open && (
+        <ChipMenu
+          items={items}
+          selected={selected}
+          anchorRef={anchor}
+          width={290}
+          keepOpen
+          onPick={pick}
+          onClose={() => setOpen(false)}
+          footer={note ? <span className="muted small">{note}</span> : undefined}
+        />
+      )}
+    </span>
+  )
+}
+
+/**
+ * «⎇ Esta copia ⌄» (como la franja de rama de Deska): dónde trabaja la tarea. La carpeta del proyecto, un
+ * worktree que ya tengas o uno nuevo con su propia rama. Solo en un repositorio de Git y mientras es un borrador.
+ */
+function BranchStrip({ wsId, panel }: { wsId: string; panel: Panel }) {
+  const root = useApp((s) => s.workspaces.find((w) => w.id === wsId)?.root ?? '')
+  const [trees, setTrees] = useState<Worktree[] | null>(null)
+  const [open, setOpen] = useState(false)
+  const [naming, setNaming] = useState(false)
+  const [name, setName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const anchor = useRef<HTMLSpanElement>(null)
+
+  const load = () => window.api.git.worktrees(root).then(setTrees, () => setTrees(null))
+  useEffect(() => {
+    if (root) void load()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [root])
+  if (!root || !trees || !trees.length) return null
+
+  const here = trees.find((w) => norm(w.path) === norm(panel.cwd ?? root)) ?? trees[0]
+  const choose = (path: string, branch: string, isMain: boolean) => {
+    useApp.getState().updatePanel(wsId, panel.id, { cwd: path, worktreeBranch: isMain ? undefined : branch })
+    setNaming(false)
+  }
+
+  const items: MenuItem[] = [
+    { value: 'local', label: 'Esta copia', detail: `${trees[0].branch} · el proyecto tal como está`, group: 'Ejecutar en' },
+    { value: 'new', label: 'Nuevo worktree…', detail: 'Una copia aparte con su propia rama', group: 'Ejecutar en' },
+    ...trees
+      .filter((w) => !w.main)
+      .map((w) => ({ value: `wt:${w.path}`, label: w.branch, detail: w.path.split(/[\\/]/).slice(-2).join('/'), group: 'Worktrees' }))
+  ]
+
+  function pick(value: string) {
+    if (value === 'local') choose(trees![0].path, trees![0].branch, true)
+    else if (value === 'new') {
+      setNaming(true)
+      setName(`tarea-${panel.id.slice(0, 4)}`)
+    } else {
+      const wt = trees!.find((w) => `wt:${w.path}` === value)
+      if (wt) choose(wt.path, wt.branch, false)
+    }
+  }
+
+  async function create() {
+    const branch = name.trim()
+    if (!branch) return
+    setBusy(true)
+    try {
+      const wt = await window.api.git.createWorktree(root, branch)
+      choose(wt.path, wt.branch, false)
+      if (wt.reused) useApp.getState().toast(`Worktree «${wt.branch}» reutilizado: sigue como lo dejaste`)
+      setName('')
+      void load()
+    } catch (err) {
+      useApp.getState().toast(errMsg(err), 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="xbranch">
+      <span ref={anchor} className="xchip-slot">
+        <Chip
+          leading={<GitBranch size={12} weight="bold" aria-hidden />}
+          label={here.main ? 'Esta copia' : here.branch}
+          caret
+          expanded={open}
+          title={`Dónde trabaja esta tarea: ${here.path}`}
+          onClick={() => setOpen(!open)}
+        />
+        {open && (
+          <ChipMenu
+            items={items}
+            selected={[here.main ? 'local' : `wt:${here.path}`]}
+            anchorRef={anchor}
+            width={320}
+            onPick={pick}
+            onClose={() => setOpen(false)}
+            footer={<span className="muted small">Un worktree es una copia aparte: la tarea no toca tus archivos de aquí.</span>}
+          />
+        )}
+      </span>
+      {naming && (
+        <div className="xbranch-new">
+          <input
+            autoFocus
+            value={name}
+            placeholder="rama-nueva, p. ej. feature/login"
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void create()
+              if (e.key === 'Escape') setNaming(false)
+            }}
+          />
+          <button className="btn small primary" disabled={busy || !name.trim()} onClick={() => void create()}>
+            Crear
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
 
 function Composer({
   config,
@@ -348,7 +475,8 @@ function Composer({
   onSend,
   onStop,
   onNewDraft,
-  big
+  big,
+  strip
 }: {
   config: TaskConfig
   onConfig: (c: TaskConfig) => void
@@ -359,14 +487,27 @@ function Composer({
   /** Ctrl/Cmd+Enter: abre otro borrador de tarea con el mismo agente, modelo y ajustes. */
   onNewDraft: () => void
   big: boolean
+  /** Franja inferior de la tarjeta (dónde trabaja la tarea), solo en el borrador. */
+  strip?: React.ReactNode
 }) {
   const [text, setText] = useState('')
   const [files, setFiles] = useState<string[]>([])
   const [slash, setSlash] = useState(false)
   const ref = useRef<HTMLTextAreaElement>(null)
-  const slashRef = useOutside<HTMLDivElement>(slash, () => setSlash(false))
+  const slashAnchor = useRef<HTMLSpanElement>(null)
+  const footerRef = useRef<HTMLDivElement>(null)
 
-  // Dictado en este cuadro (como en Deska): el micrófono pasa a «Escuchando» y «Empezar» a «Detener y empezar».
+  // En paneles estrechos, Build/Plan pasa al menú de ajustes (como el modo compacto de Deska).
+  const [compact, setCompact] = useState(false)
+  useEffect(() => {
+    const el = footerRef.current
+    if (!el) return
+    const ro = new ResizeObserver(() => setCompact(el.clientWidth < 500))
+    ro.observe(el)
+    return () => ro.disconnect()
+  }, [])
+
+  // Dictado en este cuadro (como en Deska): el micrófono pasa a «Escuchando» y «Empezar» a «Parar y empezar».
   const voice = useApp((s) => s.voice)
   const voiceMode = useApp((s) => s.voiceMode)
   const [mine, setMine] = useState(false)
@@ -412,138 +553,137 @@ function Composer({
     setFiles([])
   }
 
+  const plan = config.mode === 'plan'
+
   return (
-    <div className={`composer ${big ? 'big' : ''}`}>
-      {files.length > 0 && (
-        <div className="tk-files">
-          {files.map((f) => (
-            <span key={f} className="tk-file" title={f}>
-              📄 {f.split(/[\\/]/).pop()}
-              <button onClick={() => setFiles(files.filter((x) => x !== f))}>×</button>
-            </span>
-          ))}
-        </div>
-      )}
-      <textarea
-        ref={ref}
-        rows={big ? 3 : 1}
-        value={text}
-        placeholder={running ? 'Escribe para añadir instrucciones…' : 'Describe la tarea. Enter para empezar, Shift+Enter para una línea nueva.'}
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
-            e.preventDefault()
-            onNewDraft()
-            return
-          }
-          if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault()
-            submit()
-          }
-        }}
-      />
-      <div className="tk-bar">
-        <button
-          className="tk-icon"
-          title="Adjuntar archivos"
-          onClick={async () => {
-            const picked = await window.api.task.pickFiles(cwd)
-            if (picked.length) setFiles([...new Set([...files, ...picked])])
+    <div className={`composer xcomp ${big ? 'big' : ''}`}>
+      <div className="xcard">
+        {files.length > 0 && (
+          <div className="xcard-files">
+            {files.map((f) => (
+              <span key={f} className="tk-file" title={f}>
+                <Paperclip size={11} aria-hidden /> {f.split(/[\\/]/).pop()}
+                <button onClick={() => setFiles(files.filter((x) => x !== f))}>×</button>
+              </span>
+            ))}
+          </div>
+        )}
+        <textarea
+          ref={ref}
+          className="xcard-input"
+          rows={big ? 2 : 1}
+          value={text}
+          placeholder={running ? 'Escribe para añadir instrucciones…' : 'Describe la tarea. Enter para empezar, Shift+Enter para una línea nueva.'}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+              e.preventDefault()
+              onNewDraft()
+              return
+            }
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault()
+              submit()
+            }
           }}
-        >
-          📎
-        </button>
-        <ModelPicker config={config} onChange={onConfig} />
-        <TuningPicker config={config} onChange={onConfig} />
-        <button
-          className={`tk-chip plain ${config.mode === 'plan' ? 'on' : ''}`}
-          title="Build: el agente hace cambios · Plan: solo propone un plan"
-          onClick={() => onConfig({ ...config, mode: config.mode === 'plan' ? 'build' : 'plan' })}
-        >
-          {config.mode === 'plan' ? 'Plan' : 'Build'}
-        </button>
-        <AccessPicker config={config} onChange={onConfig} />
-        <span className="grow" />
-        <div className="menu-anchor" ref={slashRef}>
-          <button className="tk-icon mono" title="Comandos" onClick={() => setSlash(!slash)}>
-            /
-          </button>
-          {slash && (
-            <div className="menu menu-up menu-right tk-slash">
-              {SLASH[config.provider].map(([cmd, desc]) => (
-                <button
-                  key={cmd}
-                  className="menu-item"
-                  onClick={() => {
+        />
+        <div className="xcard-footer" ref={footerRef}>
+          <div className="xchip-row">
+            <button
+              className="xicon"
+              title="Adjuntar archivos"
+              onClick={async () => {
+                const picked = await window.api.task.pickFiles(cwd)
+                if (picked.length) setFiles([...new Set([...files, ...picked])])
+              }}
+            >
+              <Paperclip size={16} aria-hidden />
+            </button>
+            <ModelPicker config={config} onChange={onConfig} />
+            {!compact && (
+              <Chip
+                label={plan ? 'Plan' : 'Build'}
+                active={plan}
+                title="Build: el agente hace cambios · Plan: solo investiga y propone un plan"
+                onClick={() => onConfig({ ...config, mode: plan ? 'build' : 'plan' })}
+              />
+            )}
+            <SettingsChip config={config} onChange={onConfig} compact={compact} />
+          </div>
+          <div className="xcard-actions">
+            <span ref={slashAnchor} className="xchip-slot">
+              <button className="xicon mono" title="Comandos y skills" onMouseDown={(e) => e.preventDefault()} onClick={() => setSlash(!slash)}>
+                /
+              </button>
+              {slash && (
+                <ChipMenu
+                  items={SLASH[config.provider].map(([cmd, desc]) => ({ value: cmd, label: cmd, detail: desc }))}
+                  selected={[]}
+                  anchorRef={slashAnchor}
+                  width={320}
+                  onPick={(cmd) => {
                     setText(cmd + (text ? ' ' + text : ' '))
-                    setSlash(false)
                     ref.current?.focus()
                   }}
-                >
-                  <code>{cmd}</code>
-                  <span className="muted small grow">{desc}</span>
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-        {dictating ? (
-          <button
-            className="tk-listening"
-            title="Terminar el dictado"
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => window.api.voice.stop(false)}
-          >
-            <span className="tk-listening-stop" />
-            {voice.phase === 'transcribing' ? 'Transcribiendo…' : 'Escuchando'}
-          </button>
-        ) : (
-          <button
-            className="tk-icon"
-            title="Dictar en este cuadro"
-            // Sin robar el foco: el texto dictado se escribe donde está el cursor.
-            onMouseDown={(e) => {
-              e.preventDefault()
-              ref.current?.focus()
-            }}
-            onClick={() => {
-              setMine(true)
-              window.api.voice.toggle('dictate')
-            }}
-          >
-            <IconMic size={15} />
-          </button>
-        )}
-        {running && config.provider !== 'claude' ? (
-          <button className="tk-start stop" onClick={onStop}>
-            ■ Detener
-          </button>
-        ) : (
-          <>
-            {running && (
-              <button className="tk-icon" title="Detener" onClick={onStop}>
-                ■
-              </button>
-            )}
+                  onClose={() => setSlash(false)}
+                />
+              )}
+            </span>
             {dictating ? (
-              <button
-                className="tk-start compact"
-                title="Termina de dictar y envía lo dictado"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => {
-                  setStartAfter(true)
-                  window.api.voice.stop(false)
-                }}
-              >
-                Parar y {running ? 'enviar' : 'empezar'}
+              <button className="xlisten" title="Terminar el dictado" onMouseDown={(e) => e.preventDefault()} onClick={() => window.api.voice.stop(false)}>
+                <Stop size={11} weight="fill" aria-hidden />
+                {voice.phase === 'transcribing' ? 'Transcribiendo…' : 'Escuchando'}
               </button>
             ) : (
-              <button className="tk-start" disabled={!text.trim()} onClick={submit}>
-                {running ? 'Enviar' : 'Empezar'} ↵
+              <button
+                className="xicon"
+                title="Dictar en este cuadro"
+                // Sin robar el foco: el texto dictado se escribe donde está el cursor.
+                onMouseDown={(e) => {
+                  e.preventDefault()
+                  ref.current?.focus()
+                }}
+                onClick={() => {
+                  setMine(true)
+                  window.api.voice.toggle('dictate')
+                }}
+              >
+                <Microphone size={15} weight="fill" aria-hidden />
               </button>
             )}
-          </>
-        )}
+            {running && config.provider !== 'claude' ? (
+              <button className="xstart stop" onClick={onStop}>
+                <Stop size={11} weight="fill" aria-hidden /> Detener
+              </button>
+            ) : (
+              <>
+                {running && (
+                  <button className="xicon" title="Detener" onClick={onStop}>
+                    <Stop size={13} weight="fill" aria-hidden />
+                  </button>
+                )}
+                {dictating ? (
+                  <button
+                    className="xstart"
+                    title="Termina de dictar y envía lo dictado"
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                      setStartAfter(true)
+                      window.api.voice.stop(false)
+                    }}
+                  >
+                    Parar y {running ? 'enviar' : 'empezar'} <span className="xkey">↵</span>
+                  </button>
+                ) : (
+                  <button className="xstart" disabled={!text.trim()} onClick={submit}>
+                    {running ? 'Enviar' : 'Empezar'} <span className="xkey">↵</span>
+                  </button>
+                )}
+              </>
+            )}
+          </div>
+        </div>
+        {strip}
       </div>
     </div>
   )
@@ -725,95 +865,6 @@ function Item({ item, panelId, onImplement }: { item: TaskItem; panelId: string;
 
 const norm = (p: string): string => p.replace(/[\\/]+$/, '').replace(/\\/g, '/').toLowerCase()
 
-/**
- * «Esta copia» (como el «This checkout» de Deska): dónde trabaja la tarea. La carpeta del proyecto, un
- * worktree que ya tengas o uno nuevo con su propia rama, para que varias tareas no se pisen.
- * Solo se ve en un repositorio de Git y mientras la tarea es un borrador.
- */
-function CheckoutPicker({ wsId, panel }: { wsId: string; panel: Panel }) {
-  const root = useApp((s) => s.workspaces.find((w) => w.id === wsId)?.root ?? '')
-  const [trees, setTrees] = useState<Worktree[] | null>(null)
-  const [open, setOpen] = useState(false)
-  const [naming, setNaming] = useState(false)
-  const [name, setName] = useState('')
-  const [busy, setBusy] = useState(false)
-  const ref = useOutside<HTMLDivElement>(open, () => setOpen(false))
-
-  const load = () => window.api.git.worktrees(root).then(setTrees, () => setTrees(null))
-  useEffect(() => {
-    if (root) void load()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [root])
-  if (!root || !trees || !trees.length) return null
-
-  const here = trees.find((w) => norm(w.path) === norm(panel.cwd ?? root)) ?? trees[0]
-  const choose = (path: string, branch: string, isMain: boolean) => {
-    useApp.getState().updatePanel(wsId, panel.id, { cwd: path, worktreeBranch: isMain ? undefined : branch })
-    setOpen(false)
-    setNaming(false)
-  }
-
-  async function create() {
-    const branch = name.trim()
-    if (!branch) return
-    setBusy(true)
-    try {
-      const wt = await window.api.git.createWorktree(root, branch)
-      choose(wt.path, wt.branch, false)
-      if (wt.reused) useApp.getState().toast(`Worktree «${wt.branch}» reutilizado: sigue como lo dejaste`)
-      setName('')
-      void load()
-    } catch (err) {
-      useApp.getState().toast(errMsg(err), 'error')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div className="menu-anchor tk-checkout" ref={ref}>
-      <button className="tk-chip plain" title="Dónde trabaja esta tarea" onClick={() => setOpen(!open)}>
-        ⎇ {here.main ? 'Esta copia' : 'Worktree'} · {here.branch} ▾
-      </button>
-      {open && (
-        <div className="menu menu-up tk-checkout-menu">
-          <div className="menu-title">Dónde trabaja la tarea</div>
-          {trees.map((w) => (
-            <button key={w.path} className={`menu-item ${w === here ? 'active' : ''}`} onClick={() => choose(w.path, w.branch, w.main)}>
-              <span className="grow">
-                {w.main ? 'Esta copia' : 'Worktree'} · {w.branch}
-              </span>
-              {w === here && <span>✓</span>}
-            </button>
-          ))}
-          {naming ? (
-            <div className="tk-checkout-new">
-              <input
-                autoFocus
-                value={name}
-                placeholder="rama-nueva, p. ej. feature/login"
-                onChange={(e) => setName(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') void create()
-                  if (e.key === 'Escape') setNaming(false)
-                }}
-              />
-              <button className="btn small primary" disabled={busy || !name.trim()} onClick={() => void create()}>
-                Crear
-              </button>
-            </div>
-          ) : (
-            <button className="menu-item" onClick={() => (setNaming(true), setName(`tarea-${panel.id.slice(0, 4)}`))}>
-              ＋ Nuevo worktree…
-            </button>
-          )}
-          <p className="muted small tk-checkout-note">Un worktree es una copia aparte con su propia rama: la tarea no toca tus archivos de aquí.</p>
-        </div>
-      )}
-    </div>
-  )
-}
-
 export function TaskPanel({ wsId, panel }: { wsId: string; panel: Panel }) {
   const defaults = useApp((s) => s.settings?.taskDefaults)
   const config: TaskConfig = panel.task ?? defaults ?? { provider: 'claude', model: '', mode: 'build', access: 'full-access' }
@@ -823,6 +874,7 @@ export function TaskPanel({ wsId, panel }: { wsId: string; panel: Panel }) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const stick = useRef(true)
   const cwd = panel.cwd ?? ''
+  const projectName = useApp((s) => s.workspaces.find((w) => w.id === wsId)?.name) ?? (cwd.split(/[\\/]/).filter(Boolean).pop() || 'tu proyecto')
 
   useEffect(() => {
     let alive = true
@@ -911,11 +963,20 @@ export function TaskPanel({ wsId, panel }: { wsId: string; panel: Panel }) {
               </button>
             </div>
           )}
-          <div className="tk-cwd muted small" title={cwd}>
-            <span>📁 {cwd.split(/[\\/]/).slice(-2).join('/')}</span>
-            <CheckoutPicker wsId={wsId} panel={panel} />
-          </div>
-          <Composer config={config} onConfig={setConfig} running={running} cwd={cwd} onSend={send} onStop={() => void window.api.task.stop(panel.id)} onNewDraft={newDraft} big />
+          <h2 className="xhero" title={cwd}>
+            ¿Qué construimos en <span className="xhero-project">{projectName}</span>?
+          </h2>
+          <Composer
+            config={config}
+            onConfig={setConfig}
+            running={running}
+            cwd={cwd}
+            onSend={send}
+            onStop={() => void window.api.task.stop(panel.id)}
+            onNewDraft={newDraft}
+            big
+            strip={<BranchStrip wsId={wsId} panel={panel} />}
+          />
         </div>
       ) : (
         <>
