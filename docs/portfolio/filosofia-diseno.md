@@ -1,0 +1,13 @@
+# Cartografía Luminosa
+
+**Un movimiento visual donde la luz traza los caminos del trabajo y la oscuridad es el espacio donde todo cabe.**
+
+El punto de partida es un campo casi negro, profundo y sin bordes, que no se siente vacío sino disponible: una superficie sin límites a la espera de ser ocupada. Sobre él se extiende una retícula de puntos finísimos, apenas perceptible, como el papel milimetrado de un cartógrafo. Es la medida silenciosa del espacio. No decora: orienta. Cada elemento que se posa sobre ella hereda su orden, y el ojo entrenado nota que nada está colocado al azar, porque cada margen y cada alineación es fruto de un trabajo meticuloso, de cientos de ajustes pequeños hasta que la composición deja de moverse.
+
+La luz es el único gesto expresivo. Dos haces cruzan el campo en diagonal, uno frío (turquesa que se disuelve en violeta) y otro cálido (ámbar que se enciende en rosa), y donde se cruzan nace un destello blanco. Son caminos, no adornos: rutas por las que fluye la atención. Su borde es siempre suave, difuminado con paciencia, como luz real que atraviesa niebla. La paleta se limita a estos dos acordes sobre el negro; cualquier otro color sobraría. La contención cromática es la prueba de oficio: con tan poco, cada tono tiene que estar calibrado con precisión de maestro.
+
+El objeto central se presenta como un espécimen: una ventana luminosa que flota sobre el campo, con una sombra larga y honesta y un filo de luz de un píxel. Se trata con la reverencia de una lámina científica, numerada y acotada con marcas de registro en las esquinas, como si fuera la evidencia de un fenómeno que por fin pudo documentarse. La escala manda: el espécimen ocupa el territorio principal y todo lo demás retrocede para dejarlo respirar.
+
+La tipografía es escasa y deliberada. Un único nombre de gran peso, compacto, que funciona más como forma que como palabra. Una frase breve en tono humano. Después, solo etiquetas clínicas en monoespaciada (índices, coordenadas, categorías) colocadas con la sobriedad de un atlas. Nunca hay párrafos; la información vive en la posición, en el ritmo de los índices, en el espacio entre una línea y la siguiente. Cada letra está puesta como si la hubiera colocado a mano alguien en la cima de su disciplina.
+
+El equilibrio es asimétrico pero en calma: una columna estrecha de texto que ancla el lado izquierdo y un gran campo de imagen a la derecha, unidos por las diagonales de luz que los atraviesan a ambos. El resultado tiene que sentirse acabado, pulido hasta el último píxel, el producto de una atención paciente y de una ejecución experta: una pieza que podría colgarse en una galería y que, al mismo tiempo, se lee al instante.

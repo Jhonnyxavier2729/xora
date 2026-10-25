@@ -1,5 +1,7 @@
 # Xora
 
+![Xora: an infinite canvas for working with AI coding agents](docs/portfolio/xora-portada-1920.png)
+
 > Working name. An infinite, zoomable canvas for working with AI coding agents.
 
 Xora is a desktop app (Electron + React) where every project folder becomes a **workspace**: a canvas on which you place, move and resize panels — agents, terminals, an editor, a browser, sticky notes and Git — and talk to all of them by voice.
