@@ -1,4 +1,3 @@
-# Xora
 
 ![Xora: an infinite canvas for working with AI coding agents](docs/portfolio/xora-portada-1920.png)
 
