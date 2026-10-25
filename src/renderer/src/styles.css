@@ -1115,22 +1115,22 @@ code.block {
   user-select: none;
 }
 
-.diff-line.add {
+.diff-line.diff-add {
   background: rgba(61, 220, 151, 0.1);
   color: #b8f5d8;
 }
 
-.diff-line.del {
+.diff-line.diff-del {
   background: rgba(255, 107, 107, 0.1);
   color: #ffc2c2;
 }
 
-.diff-line.hunk {
+.diff-line.diff-hunk {
   color: var(--accent);
   background: rgba(124, 156, 255, 0.07);
 }
 
-.diff-line.meta {
+.diff-line.diff-meta {
   color: var(--muted);
 }
 

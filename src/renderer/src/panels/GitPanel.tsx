@@ -221,8 +221,9 @@ export function GitPanel({ wsId, wsRoot, panel }: { wsId: string; wsRoot: string
           {file &&
             lines.map((l, i) => (
               <div key={i}>
+                {/* Clase con prefijo: «ctx» a secas es la del menú contextual (position: fixed) y sacaba las líneas del panel. */}
                 <div
-                  className={`diff-line ${l.kind}`}
+                  className={`diff-line diff-${l.kind}`}
                   onClick={() => (l.kind === 'add' || l.kind === 'ctx' || l.kind === 'del') && setCommentAt(commentAt === i ? null : i)}
                 >
                   <span className="ln">{l.newLine ?? ''}</span>
